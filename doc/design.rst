@@ -110,7 +110,7 @@ reinforcement learning. Below we'll show an example of such a process (thoughts 
 .. code:: python
 
     # this is how we turn the rewards into a learning signal
-    tracer = caox.NStepCache(n=1, gamma=0.9)
+    tracer = coax.NStepCache(n=1, gamma=0.9)
 
     # and this is how specify how to update our q-function
     qlearning = coax.td_learning.QLearning(q)
