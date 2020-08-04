@@ -19,12 +19,34 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
+import haiku as hk
 
-from .._base.test_case import TestCase, DummyFuncApprox
+from .._base.test_case import TestCase
 from ..utils import get_transition
 from .value_v import V
+
+
+def func(S, is_training):
+    rng1, rng2, rng3 = hk.next_rng_keys(3)
+    rate = 0.25 if is_training else 0.
+    batch_norm = hk.BatchNorm(False, False, 0.99)
+    seq = hk.Sequential((
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, rng1, rate),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, rng2, rate),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, rng3, rate),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(1, w_init=jnp.zeros), jnp.ravel,
+    ))
+    return seq(S)
 
 
 class TestV(TestCase):
@@ -32,8 +54,8 @@ class TestV(TestCase):
     decimal = 6
 
     def setUp(self):
-        func = DummyFuncApprox(self.env_discrete)
-        self.v = V(func)
+        s = self.env_discrete.observation_space.sample()
+        self.v = V(func, s, random_seed=13)
         self.transition = get_transition(self.env_discrete)
         self.transition_batch = self.transition.to_batch()
 
@@ -60,12 +82,6 @@ class TestV(TestCase):
 
     def test_function_state(self):
         print(self.v.function_state)
-        # TODO(krholshe): figure out how to set the random seed properly
-        # self.assertArrayAlmostEqual(
-        #     self.v.function_state['body']['batch_norm/~/mean_ema']['average'],
-        #     jnp.array([[
-        #         -0.187714, 0.805008, 0.51992, -0.399528, 0.07384, -0.216556, 0.675991
-        #     ]]))
-        self.assertEqual(
-            self.v.function_state['body']['batch_norm/~/mean_ema']['average'].shape,
-            (1, 7))
+        self.assertArrayAlmostEqual(
+            self.v.function_state['batch_norm/~/mean_ema']['average'],
+            jnp.array([[0, 0.088821, 0.388489, 0, 0, 0, 0.083472, 0]]))

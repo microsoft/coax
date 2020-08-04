@@ -23,7 +23,6 @@ import gym
 import numpy as onp
 import jax
 import jax.numpy as jnp
-from gym.wrappers.frame_stack import LazyFrames
 
 
 class SpaceUtilsMixin:
@@ -68,9 +67,3 @@ class SpaceUtilsMixin:
             hi = self.env.action_space.high
             return onp.clip(a, lo, hi)
         return a
-
-    @staticmethod
-    def _preprocess_state(s):
-        if isinstance(s, LazyFrames):
-            return onp.asanyarray(s)
-        return s
