@@ -54,8 +54,7 @@ class TestV(TestCase):
     decimal = 6
 
     def setUp(self):
-        s = self.env_discrete.observation_space.sample()
-        self.v = V(func, s, random_seed=13)
+        self.v = V(func, self.env_discrete.observation_space, random_seed=13)
         self.transition = get_transition(self.env_discrete)
         self.transition_batch = self.transition.to_batch()
 
@@ -84,4 +83,4 @@ class TestV(TestCase):
         print(self.v.function_state)
         self.assertArrayAlmostEqual(
             self.v.function_state['batch_norm/~/mean_ema']['average'],
-            jnp.array([[0, 0.088821, 0.388489, 0, 0, 0, 0.083472, 0]]))
+            jnp.array([[0, 0.139146, 1.829144, 0, 0, 0.954466, 0, 0]]))

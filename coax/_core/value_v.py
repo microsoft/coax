@@ -41,57 +41,66 @@ class V(BaseFunc):
     func : function
 
         A Haiku-style function that specifies the forward pass. The function signature must be the
-        same as this example:
+        same as the example below.
 
-        .. code:: python
+    observation_space : gym.Space
 
-            import jax
-            import jax.numpy as jnp
-            import haiku as hk
-            from functools import partial
-
-            def func(S, is_training):
-                rng1, rng2. rng3 = hk.next_rng_keys(3)
-                rate = 0.25 if is_training else 0.
-                seq = hk.Sequential((
-                    hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng1, rate),
-                    hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng2, rate),
-                    hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng3, rate),
-                    hk.Linear(1), jnp.ravel,
-                ))
-                return seq(S)
-
-        The input ``S`` is a batch of state observations and ``is_training`` is single boolean flag
-        that indicates whether or not to run the forward-pass in training mode.
-
-    s : state observation
-
-        An example state observation, e.g.
-
-        .. code:: python
-
-            s = env.observation_space.sample()
-
-        This is used to initialize the underlying function approximator in the following steps:
-
-        .. code:: python
-
-            S = coax.utils.single_to_batch(s)
-            transformed = hk.transform_with_state(func)
-            self.function = transform.apply
-            self.params, self.function_state = transformed.init(rng, S)
+        The observation space of the environment. This is used to generate example input for
+        initializing ``func``. This is done after Haiku-transforming it, see also
+        :func:`haiku.transform_with_state`.
 
     optimizer : optix optimizer, optional
 
         An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
         <jax.experimental.optix.adam>`.
 
+    Examples
+    --------
+    Here's an example where the observation space is a :class:`gym.spaces.Box`.
+
+    .. code:: python
+
+        from functools import partial
+
+        import gym
+        import coax
+        import jax
+        import jax.numpy as jnp
+        import haiku as hk
+        from jax.experimental import optix
+
+
+        def func(S, is_training):
+            rng1, rng2, rng3 = hk.next_rng_keys(3)
+            rate = 0.25 if is_training else 0.
+            seq = hk.Sequential((
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng1, rate),
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng2, rate),
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng3, rate),
+                hk.Linear(1), jnp.ravel,
+            ))
+            return seq(S)
+
+
+        env = gym.make('CartPole-v0')
+
+        # the state value function
+        v = coax.V(func, env.observation_space, optimizer=optix.adam(0.01))
+
+        # example usage:
+        s = env.observation_space.sample()
+        v(s)  # returns a float
+
+    The input ``S`` is a batch of state observations and ``is_training`` is single boolean flag
+    that indicates whether or not to run the forward-pass in training mode.
+
     """
 
-    def __init__(self, func, s, optimizer=None, random_seed=None):
+    def __init__(self, func, observation_space, optimizer=None, random_seed=None):
         super().__init__(
             func,
-            example_inputs=(single_to_batch(s), True),
+            observation_space=observation_space,
+            action_space=None,
             optimizer=optimizer,
             random_seed=random_seed)
 

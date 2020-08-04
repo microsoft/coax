@@ -29,25 +29,36 @@ from jax.experimental import optix
 from gym.wrappers.frame_stack import LazyFrames
 
 from .._base.mixins import RandomStateMixin
+from ..utils import safe_sample, single_to_batch
 
 
 class BaseFunc(ABC, RandomStateMixin):
     """ Abstract base class for function approximators: coax.V, coax.Q, coax.Policy """
 
-    def __init__(self, func, example_inputs, optimizer=None, random_seed=None):
+    def __init__(self, func, observation_space, action_space, optimizer=None, random_seed=None):
+        self.observation_space = observation_space
         self.random_seed = random_seed
 
+        example_input = {
+            'S': single_to_batch(safe_sample(self.observation_space, seed=self.random_seed)),
+            'is_training': True,
+        }
+        if action_space is not None:
+            self.action_space = action_space
+            example_input['A'] = single_to_batch(safe_sample(action_space, seed=self.random_seed))
+
         # Haiku-transform the provided func
-        static_argnums = self._check_argspec(func)
+        argnames, static_argnums = self._check_argspec(func)
         transformed = hk.transform_with_state(func)
         self._function = jax.jit(transformed.apply, static_argnums=static_argnums)
 
         # init function params and state
-        self._params, self._function_state = transformed.init(self.rng, *example_inputs)
+        example_input = tuple(example_input[k] for k in argnames)
+        self._params, self._function_state = transformed.init(self.rng, *example_input)
 
         # check if output has the expected shape etc.
         example_output, _ = \
-            self._function(self.params, self.function_state, self.rng, *example_inputs)
+            self._function(self.params, self.function_state, self.rng, *example_input)
         self._check_output(example_output)
 
         # optimizer
@@ -74,8 +85,8 @@ class BaseFunc(ABC, RandomStateMixin):
         ----------
         grads : pytree with ndarray leaves
 
-            Gradients with respect to the model parameters. Note that the pytree structure must be
-            the same as :attr:`params`.
+            Gradients of some (auxiliary) loss function with respect to the model parameters. Note
+            that the pytree structure must be the same as :attr:`params`.
 
         """
         self.optimizer_state, self.params = \

@@ -21,9 +21,10 @@
 
 import warnings
 
-import numpy as onp
+import gym
 import jax
 import jax.numpy as jnp
+import numpy as onp
 from scipy.linalg import pascal
 
 from .._base.errors import NumpyArrayCheckError
@@ -500,6 +501,58 @@ def merge_dicts(*dicts):
             warnings.warn(f"merge_dicts found overlapping keys: {tuple(overlap)}")
         merged.update(d)
     return merged
+
+
+def _safe_sample(space, rnd):
+    if isinstance(space, gym.spaces.Discrete):
+        return rnd.randint(space.n)
+
+    if isinstance(space, gym.spaces.MultiDiscrete):
+        return onp.asarray([rnd.randint(n) for n in space.nvec])
+
+    if isinstance(space, gym.spaces.MultiBinary):
+        return rnd.randint(2, size=space.n)
+
+    if isinstance(space, gym.spaces.Box):
+        return rnd.rand(*space.shape)
+
+    if isinstance(space, gym.spaces.Tuple):
+        return tuple(_safe_sample(sp, rnd) for sp in space.spaces)
+
+    if isinstance(space, gym.spaces.Dict):
+        return {k: _safe_sample(sp, rnd) for k, sp in space.spaces.items()}
+
+    # fallback for non-supported spaces
+    return space.sample()
+
+
+def safe_sample(space, seed=None):
+    r"""
+
+    Safely sample from a gym-style space.
+
+    Parameters
+    ----------
+    space : gym.Space
+
+        A gym-style space.
+
+    seed : int, optional
+
+        The seed for the pseudo-random number generator.
+
+    Returns
+    -------
+    sample
+
+        An single sample from of the given ``space``.
+
+    """
+    if not isinstance(space, gym.Space):
+        raise TypeError("space must be derived from gym.Space")
+
+    rnd = onp.random.RandomState(seed)
+    return _safe_sample(space, rnd)
 
 
 def single_to_batch(pytree):
