@@ -515,7 +515,7 @@ def _safe_sample(space, rnd):
         return rnd.randint(2, size=space.n)
 
     if isinstance(space, gym.spaces.Box):
-        return rnd.rand(*space.shape)
+        return onp.clip(rnd.rand(*space.shape), space.low, space.high)
 
     if isinstance(space, gym.spaces.Tuple):
         return tuple(_safe_sample(sp, rnd) for sp in space.spaces)
