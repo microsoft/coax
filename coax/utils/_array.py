@@ -44,6 +44,7 @@ __all__ = (
     'isscalar',
     'merge_dicts',
     'single_to_batch',
+    'safe_sample',
     'tree_ravel',
 )
 
@@ -520,7 +521,7 @@ def _safe_sample(space, rnd):
         return tuple(_safe_sample(sp, rnd) for sp in space.spaces)
 
     if isinstance(space, gym.spaces.Dict):
-        return {k: _safe_sample(sp, rnd) for k, sp in space.spaces.items()}
+        return {k: _safe_sample(space.spaces[k], rnd) for k in sorted(space.spaces)}
 
     # fallback for non-supported spaces
     return space.sample()
