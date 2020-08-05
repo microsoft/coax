@@ -165,10 +165,10 @@ class V(BaseFunc):
         S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
         is_training = True
 
-        # the +3 offset is due to the (params, state, rng) args of the transformed function
-        static_argnums = 1 + 3
+        example_inputs = (S, is_training)
+        static_argnums = (1,)
 
-        return (S, is_training), static_argnums
+        return example_inputs, static_argnums
 
     def _check_output(self, example_output):
         if not isinstance(example_output, jnp.ndarray):

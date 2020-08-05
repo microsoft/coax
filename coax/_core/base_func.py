@@ -41,6 +41,7 @@ class BaseFunc(ABC, RandomStateMixin):
 
         # Haiku-transform the provided func
         example_inputs, static_argnums = self._check_signature(func)
+        static_argnums = tuple(i + 3 for i in static_argnums)  # offset args: (params, state, rng)
         transformed = hk.transform_with_state(func)
         self._function = jax.jit(transformed.apply, static_argnums=static_argnums)
 
