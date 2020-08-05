@@ -21,16 +21,21 @@
 
 from abc import ABC, abstractmethod
 
+import gym
+import jax
+
+from ..utils import batch_to_single
+
 
 class ProbaDist(ABC):
     r"""
 
     Abstract base class for probability distributions. Check out
-    :class:`coax.proba_dists.CategoricalDist` for a specific
-    example.
+    :class:`coax.proba_dists.CategoricalDist` for a specific example.
 
     """
     __slots__ = (
+        'space',
         '_sample_func',
         '_mode_func',
         '_log_proba_func',
@@ -39,6 +44,11 @@ class ProbaDist(ABC):
         '_kl_divergence_func',
         '_default_priors_func',
     )
+
+    def __init__(self, space):
+        if not isinstance(space, gym.Space):
+            raise TypeError("space must be derived from gym.Space")
+        self.space = space
 
     @property
     def hyperparams(self):
@@ -74,8 +84,7 @@ class ProbaDist(ABC):
     def mode(self):
         r"""
 
-        JIT-compiled functions that generates differentiable modes of the
-        distribution.
+        JIT-compiled functions that generates differentiable modes of the distribution.
 
         Parameters
         ----------
@@ -102,13 +111,11 @@ class ProbaDist(ABC):
         ----------
         dist_params : pytree with ndarray leaves
 
-            A batch of distribution parameters of the form ``{'logits':
-            ndarray}``.
+            A batch of distribution parameters.
 
         X : ndarray
 
-            A batch of variates, e.g. a batch of actions :math:`a` collected
-            from experience.
+            A batch of variates, e.g. a batch of actions :math:`a` collected from experience.
 
         Returns
         -------
@@ -134,8 +141,7 @@ class ProbaDist(ABC):
         ----------
         dist_params : pytree with ndarray leaves
 
-            A batch of distribution parameters of the form ``{'logits':
-            ndarray}``.
+            A batch of distribution parameters.
 
         Returns
         -------
@@ -150,8 +156,8 @@ class ProbaDist(ABC):
     def cross_entropy(self):
         r"""
 
-        JIT-compiled function that computes the cross-entropy of a distribution
-        :math:`q` relative to another categorical distribution :math:`p`:
+        JIT-compiled function that computes the cross-entropy of a distribution :math:`q` relative
+        to another categorical distribution :math:`p`:
 
         .. math::
 
@@ -165,8 +171,7 @@ class ProbaDist(ABC):
 
         dist_params_q : pytree with ndarray leaves
 
-            The distribution parameters of the *auxiliary* distribution
-            :math:`q`.
+            The distribution parameters of the *auxiliary* distribution :math:`q`.
 
         """
         return self._cross_entropy_func
@@ -175,9 +180,8 @@ class ProbaDist(ABC):
     def kl_divergence(self):
         r"""
 
-        JIT-compiled function that computes the Kullback-Leibler divergence of
-        a categorical distribution :math:`q` relative to another distribution
-        :math:`p`:
+        JIT-compiled function that computes the Kullback-Leibler divergence of a categorical
+        distribution :math:`q` relative to another distribution :math:`p`:
 
         .. math::
 
@@ -191,11 +195,19 @@ class ProbaDist(ABC):
 
         dist_params_q : pytree with ndarray leaves
 
-            The distribution parameters of the *auxiliary* distribution
-            :math:`q`.
+            The distribution parameters of the *auxiliary* distribution :math:`q`.
 
         """
         return self._kl_divergence_func
+
+    @property
+    def dist_params_structure(self):
+        r"""
+
+        The tree structure of the distribution parameters.
+
+        """
+        return jax.tree_structure(self.default_priors(shape=()))
 
     @staticmethod
     @abstractmethod
@@ -218,3 +230,31 @@ class ProbaDist(ABC):
 
         """
         pass
+
+    def postprocess_variate(self, X):
+        r"""
+
+        The post-processor specific to variates drawn from this ditribution.
+
+        This method provides the interface between differentiable, batched variates, i.e. outputs
+        of :func:`sample` and :func:`mode` and the provided gym space.
+
+        Parameters
+        ----------
+        X : variates
+
+            A batch of variates sampled from this proba_dist. This will be converted into a single
+            variate. Note that if the batch size is greater than one, all but the first variate are
+            ignored.
+
+        Returns
+        -------
+        x : variate
+
+            A single variate that should satisfy :code:`self.space.contains(a)`.
+
+        """
+        x = batch_to_single(X)
+        assert self.space.contains(x), \
+            f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
+        return x

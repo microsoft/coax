@@ -21,10 +21,9 @@
 
 from inspect import signature
 
-import jax
 import jax.numpy as jnp
 
-from ..utils import single_to_batch, batch_to_single, safe_sample
+from ..utils import single_to_batch, safe_sample
 from .base_func import BaseFunc
 
 
@@ -104,14 +103,6 @@ class V(BaseFunc):
             optimizer=optimizer,
             random_seed=random_seed)
 
-        def apply_single(params, state, rng, s):
-            S = single_to_batch(s)
-            V, _ = self.function(params, state, rng, S, False)
-            v = batch_to_single(V)
-            return v
-
-        self._apply_single = jax.jit(apply_single)
-
     def __call__(self, s):
         r"""
 
@@ -130,30 +121,9 @@ class V(BaseFunc):
             The estimated expected value associated with the input state observation ``s``.
 
         """
-        s = self._preprocess_state(s)
-        v = self._apply_single(self.params, self.function_state, self.rng, s)
-        return v
-
-    def batch_eval(self, S):
-        r"""
-
-        Evaluate the value function on a batch of state observations.
-
-        Parameters
-        ----------
-        S : ndarray
-
-            A batch of state observations :math:`s`.
-
-        Returns
-        -------
-        V : ndarray, shape: (batch_size,)
-
-            The estimated expected value associated with the input state observations ``S``.
-
-        """
+        S = self._preprocess_state(s)
         V, _ = self.function(self.params, self.function_state, self.rng, S, False)
-        return V
+        return V[0]  # batch -> single
 
     def _check_signature(self, func):
         if tuple(signature(func).parameters) != ('S', 'is_training'):

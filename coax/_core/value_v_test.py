@@ -61,10 +61,6 @@ class TestV(TestCase):
     def tearDown(self):
         del self.v, self.transition
 
-    def test_batch_eval(self):
-        V = self.v.batch_eval(self.transition_batch.S)
-        self.assertArrayAlmostEqual(V, [0.])
-
     def test_call(self):
         v = self.v(self.transition.s)
         self.assertAlmostEqual(v, 0.)
@@ -88,29 +84,31 @@ class TestV(TestCase):
     def test_bad_input_signature(self):
         def badfunc(S, is_training, x):
             pass
-        msg = "func has bad signature; expected: func(S, is_training), got: func(S, is_training, x)"
-        with self.assertRaises(TypeError, msg=msg):
+        msg = (
+            r"func has bad signature; "
+            r"expected: func\(S, is_training\), got: func\(S, is_training, x\)")
+        with self.assertRaisesRegex(TypeError, msg):
             V(badfunc, self.env_discrete.observation_space, random_seed=13)
 
     def test_bad_output_type(self):
         def badfunc(S, is_training):
             return 'garbage'
-        msg = "func has bad return type; expected jnp.ndarray, got str"
-        with self.assertRaises(TypeError, msg=msg):
+        msg = r"func has bad return type; expected jnp\.ndarray, got str"
+        with self.assertRaisesRegex(TypeError, msg):
             V(badfunc, self.env_discrete.observation_space, random_seed=13)
 
     def test_bad_output_shape(self):
         def badfunc(S, is_training):
             V = func(S, is_training)
             return jnp.expand_dims(V, axis=-1)
-        msg = "func has bad return shape; expected ndim=1, got ndim=2"
-        with self.assertRaises(TypeError, msg=msg):
+        msg = r"func has bad return shape; expected ndim=1, got ndim=2"
+        with self.assertRaisesRegex(TypeError, msg):
             V(badfunc, self.env_discrete.observation_space, random_seed=13)
 
     def test_bad_output_dtype(self):
         def badfunc(S, is_training):
             V = func(S, is_training)
             return V.astype('int32')
-        msg = "func has bad return dtype; expected a subdtype of jnp.floating, got dtype=int32"
-        with self.assertRaises(TypeError, msg=msg):
+        msg = r"func has bad return dtype; expected a subdtype of jnp\.floating, got dtype=int32"
+        with self.assertRaisesRegex(TypeError, msg):
             V(badfunc, self.env_discrete.observation_space, random_seed=13)

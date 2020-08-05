@@ -32,8 +32,6 @@ from ..utils import single_to_batch, safe_sample
 from .value_q import Q
 
 
-# env = gym.make('Pendulum-v0')
-
 discrete = gym.spaces.Discrete(7)
 boxspace = gym.spaces.Box(low=0, high=1, shape=(2, 3))
 
@@ -91,52 +89,6 @@ class TestQ(TestCase):
         Q(func_type2, discrete, discrete)
         Q(func_type1, discrete, boxspace)
         Q(func_type1, discrete, discrete)
-
-    def test_batch_eval_type1_discrete(self):
-        S = single_to_batch(safe_sample(boxspace, seed=11))
-        A = single_to_batch(safe_sample(discrete, seed=11))
-        q = Q(func_type1, boxspace, discrete)
-
-        # without A
-        Q_s = q.batch_eval(S)
-        self.assertArrayShape(Q_s, (1, discrete.n))
-        self.assertArraySubdtypeFloat(Q_s)
-
-        # with A
-        Q_sa = q.batch_eval(S, A)
-        self.assertArrayShape(Q_sa, (1,))
-        self.assertArraySubdtypeFloat(Q_sa)
-        self.assertArrayAlmostEqual(Q_sa, Q_s[:, A[0]])
-
-    def test_batch_eval_type2_discrete(self):
-        S = single_to_batch(safe_sample(boxspace, seed=13))
-        A = single_to_batch(safe_sample(discrete, seed=13))
-        q = Q(func_type2, boxspace, discrete)
-
-        # without A
-        Q_s = q.batch_eval(S)
-        self.assertArrayShape(Q_s, (1, discrete.n))
-        self.assertArraySubdtypeFloat(Q_s)
-
-        # with A
-        Q_sa = q.batch_eval(S, A)
-        self.assertArrayShape(Q_sa, (1,))
-        self.assertArraySubdtypeFloat(Q_sa)
-        self.assertArrayAlmostEqual(Q_sa, Q_s[:, A[0]])
-
-    def test_batch_eval_type1_box(self):
-        S = single_to_batch(safe_sample(boxspace, seed=17))
-        A = single_to_batch(safe_sample(boxspace, seed=17))
-        q = Q(func_type1, boxspace, boxspace)
-
-        # type-1 requires A
-        msg = r"input 'A' is required for type-1 q-function when action space is non-Discrete"
-        with self.assertRaisesRegex(ValueError, msg):
-            q.batch_eval(S)
-
-        Q_sa = q.batch_eval(S, A)
-        self.assertArrayShape(Q_sa, (1,))
-        self.assertArraySubdtypeFloat(Q_sa)
 
     def test_call_type1_discrete(self):
         s = safe_sample(boxspace, seed=19)

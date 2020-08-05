@@ -25,7 +25,7 @@ import gym
 import jax
 import jax.numpy as jnp
 
-from ..utils import single_to_batch, batch_to_single, safe_sample
+from ..utils import single_to_batch, safe_sample
 from .base_func import BaseFunc
 
 
@@ -173,22 +173,6 @@ class Q(BaseFunc):
             optimizer=optimizer,
             random_seed=random_seed)
 
-        def apply_single_type1(params, state, rng, s, a):
-            S = single_to_batch(s)
-            A = single_to_batch(a)
-            Q_sa, _ = self.function_type1(params, state, rng, S, A, False)
-            q_sa = batch_to_single(Q_sa)
-            return q_sa
-
-        def apply_single_type2(params, state, rng, s):
-            S = single_to_batch(s)
-            Q_s, _ = self.function_type2(params, state, rng, S, False)
-            q_s = batch_to_single(Q_s)
-            return q_s
-
-        self._apply_single_type1 = jax.jit(apply_single_type1)
-        self._apply_single_type2 = jax.jit(apply_single_type2)
-
     def __call__(self, s, a=None):
         r"""
 
@@ -215,47 +199,13 @@ class Q(BaseFunc):
             discrete action spaces.
 
         """
-        s = self._preprocess_state(s)
-        assert self.observation_space.contains(s), f"bad state: {s}"
+        S = self._preprocess_state(s)
         if a is None:
-            return self._apply_single_type2(self.params, self.function_state, self.rng, s)
-
-        assert self.action_space.contains(a), f"bad action: {a}"
-        return self._apply_single_type1(self.params, self.function_state, self.rng, s, a)
-
-    def batch_eval(self, S, A=None):
-        r"""
-
-        Evaluate the value function on a batch of state observations.
-
-        This modifies the :attr:`func_approx.params <coax.FuncApprox.params>`
-        attribute.
-
-        Parameters
-        ----------
-        S : ndarray
-
-            A batch of state observations :math:`s`.
-
-        A : ndarray, optional
-
-            A batch of actions :math:`a`. This may be omitted if the action space is discrete.
-
-        Returns
-        -------
-        Q_sa or Q_s : ndarray
-
-            Depending on whether ``A`` is provided, this either returns a batch of scalars
-            representing :math:`q(s,a)\in\mathbb{R}` or a batch of vectors representing
-            :math:`q(s,.)\in\mathbb{R}^n`, where :math:`n` is the number of discrete actions.
-            Naturally, this only applies for discrete action spaces.
-
-        """
-        if A is None:
             Q, _ = self.function_type2(self.params, self.function_state, self.rng, S, False)
         else:
+            A = single_to_batch(a)
             Q, _ = self.function_type1(self.params, self.function_state, self.rng, S, A, False)
-        return Q
+        return Q[0]  # batch -> single
 
     @property
     def function_type1(self):

@@ -22,13 +22,16 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 
+import gym
 import jax
 import numpy as onp
 import haiku as hk
 from jax.experimental import optix
 from gym.wrappers.frame_stack import LazyFrames
+from scipy.special import expit as sigmoid
 
 from .._base.mixins import RandomStateMixin
+from ..utils import single_to_batch
 
 
 class BaseFunc(ABC, RandomStateMixin):
@@ -132,13 +135,13 @@ class BaseFunc(ABC, RandomStateMixin):
 
     @property
     def function(self):
-        r""" The function approximator itself, defined as a pure function.
+        r""" The function approximator itself, defined as a JIT-compiled pure function.
 
         This function may be called directly as:
 
         .. code:: python
 
-            output = obj.function(obj.params, obj.function_state, obj.rng, *inputs)
+            output, function_state = obj.function(obj.params, obj.function_state, obj.rng, *inputs)
 
         """
         return self._function
@@ -174,8 +177,8 @@ class BaseFunc(ABC, RandomStateMixin):
     def _check_output(self, example_output):
         """ Check if func has expected output signature; raises TypeError """
 
-    @staticmethod
-    def _preprocess_state(s):
+    def _preprocess_state(self, s):
         if isinstance(s, LazyFrames):
             return onp.asanyarray(s)
-        return s
+
+        return single_to_batch(s)

@@ -19,38 +19,37 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-r"""
+from gym.spaces import Discrete, Box
 
-Probability Distributions
-=========================
-
-This is a collection of **differentiable** probability distributions used
-throughout the package.
-
-
-Object Reference
-----------------
-
-.. autosummary::
-    :nosignatures:
-
-    coax.proba_dists.default_proba_dist
-    coax.proba_dists.ProbaDist
-    coax.proba_dists.CategoricalDist
-    coax.proba_dists.NormalDist
-
-
-"""
-
-from ._default import default_proba_dist
-from ._base import ProbaDist
 from ._categorical import CategoricalDist
 from ._normal import NormalDist
 
 
-__all__ = (
-    'default_proba_dist',
-    'ProbaDist',
-    'CategoricalDist',
-    'NormalDist',
-)
+def default_proba_dist(space):
+    r"""
+
+    The default probability distribution over a given space.
+
+    Parameters
+    ----------
+    space : gym.Space
+
+        The gym-style space over which we define the proba_dist.
+
+    Returns
+    -------
+    proba_dist : ProbaDist
+
+        The default proba_dist for the provided actions space.
+
+    """
+    if isinstance(space, Discrete):
+        return CategoricalDist(space)
+
+    if isinstance(space, Box):
+        return NormalDist(space)
+
+    raise NotImplementedError(
+        "no default policy distribution for action space of type: "
+        f"{space.__class__.__name__}; please provide your "
+        "own distribution by specifying proba_dist=...")

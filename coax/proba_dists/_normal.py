@@ -19,9 +19,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import gym.spaces
 import jax.nn
 import jax.random
 import jax.numpy as jnp
+import numpy as onp
+from scipy.special import expit as sigmoid
 
 from ._base import ProbaDist
 
@@ -36,19 +39,21 @@ class NormalDist(ProbaDist):
 
     A differentiable normal distribution.
 
-    The input ``dist_params`` to each of the functions is expected to be of the
-    form:
+    The input ``dist_params`` to each of the functions is expected to be of the form:
 
     .. code:: python
 
         dist_params = {'mu': array([...]), 'logvar': array([...])}
 
-    which represent the (conditional) distribution parameters. Here, ``mu`` is
-    the mean :math:`\mu` and ``logvar`` is the log-variance
-    :math:`\log(\sigma^2)`.
+    which represent the (conditional) distribution parameters. Here, ``mu`` is the mean :math:`\mu`
+    and ``logvar`` is the log-variance :math:`\log(\sigma^2)`.
 
     """
-    def __init__(self):
+    def __init__(self, space):
+        if not isinstance(space, gym.spaces.Box):
+            raise TypeError(f"{self.__class__.__name__} can only be defined over Box spaces")
+
+        super().__init__(space)
         self._init_funcs()
 
     def _init_funcs(self):
@@ -56,26 +61,29 @@ class NormalDist(ProbaDist):
 
         def sample(dist_params, rng):
             mu, logvar = dist_params['mu'], dist_params['logvar']
-            z = jax.random.normal(rng, mu.shape)
-            return mu + z * jnp.exp(logvar / 2)
+            return mu + jnp.exp(logvar / 2) * jax.random.normal(rng, mu.shape)
 
         def mode(dist_params):
             return dist_params['mu']
 
         def log_proba(dist_params, x):
             mu, logvar = dist_params['mu'], dist_params['logvar']
-            assert mu.ndim == logvar.ndim == 2  # check if flattened
+            assert x.shape == mu.shape == logvar.shape
+
+            # ensure that all quantities are batch-flattened
+            x = x.reshape(x.shape[0], -1)
+            mu = mu.reshape(mu.shape[0], -1)
+            logvar = logvar.reshape(logvar.shape[0], -1)
+
             n = logvar.shape[-1]
             log_det_var = jnp.sum(logvar, axis=-1)  # log(det(M)) = tr(log(M))
-            if x.ndim == mu.ndim == logvar.ndim == 1:
-                quad = jnp.dot(jnp.square(x - mu), jnp.exp(-logvar))
-            else:
-                assert x.ndim == mu.ndim == logvar.ndim == 2
-                quad = jnp.einsum('ij,ij->i', jnp.square(x - mu), jnp.exp(-logvar))
+            quad = jnp.einsum('ij,ij->i', jnp.square(x - mu), jnp.exp(-logvar))
             return -0.5 * (n * log_2pi + log_det_var + quad)
 
         def entropy(dist_params):
             logvar = dist_params['logvar']
+            logvar = logvar.reshape(logvar.shape[0], -1)
+
             assert logvar.ndim == 2  # check if flattened
             log_det_var = jnp.sum(logvar, axis=-1)  # log(det(M)) = tr(log(M))
             n = logvar.shape[-1]
@@ -84,34 +92,34 @@ class NormalDist(ProbaDist):
         def cross_entropy(dist_params_p, dist_params_q):
             m1, log_v1 = dist_params_p['mu'], dist_params_p['logvar']
             m2, log_v2 = dist_params_q['mu'], dist_params_q['logvar']
+
+            # ensure that all quantities are batch-flattened
+            m1, log_v1 = m1.reshape(m1.shape[0], -1), log_v1.reshape(log_v1.shape[0], -1)
+            m2, log_v2 = m2.reshape(m2.shape[0], -1), log_v2.reshape(log_v2.shape[0], -1)
+
             v1 = jnp.exp(log_v1)
             v2_inv = jnp.exp(-log_v2)
             log_det_v2 = jnp.sum(log_v2, axis=-1)  # log(det(M)) = tr(log(M))
             n = m1.shape[-1]
             assert n == m2.shape[-1] == log_v1.shape[-1] == log_v2.shape[-1]
-            if m2.ndim == log_v2.ndim == 1:
-                quad = jnp.dot(v1 + jnp.square(m1 - m2), v2_inv)
-            else:
-                assert m2.ndim == log_v2.ndim == 2
-                quad = jnp.einsum('ij,ij->i', v1 + jnp.square(m1 - m2), v2_inv)
+            quad = jnp.einsum('ij,ij->i', v1 + jnp.square(m1 - m2), v2_inv)
             return 0.5 * (n * log_2pi + log_det_v2 + quad)
 
         def kl_divergence(dist_params_p, dist_params_q):
             m1, log_v1 = dist_params_p['mu'], dist_params_p['logvar']
             m2, log_v2 = dist_params_q['mu'], dist_params_q['logvar']
-            assert m1.ndim == log_v1.ndim and m1.ndim in (1, 2)  # check flat
-            assert m2.ndim == log_v2.ndim and m2.ndim in (1, 2)  # check flat
+
+            # ensure that all quantities are batch-flattened
+            m1, log_v1 = m1.reshape(m1.shape[0], -1), log_v1.reshape(log_v1.shape[0], -1)
+            m2, log_v2 = m2.reshape(m2.shape[0], -1), log_v2.reshape(log_v2.shape[0], -1)
+
             v1 = jnp.exp(log_v1)
             v2_inv = jnp.exp(-log_v2)
             log_det_v1 = jnp.sum(log_v1, axis=-1)  # log(det(M)) = tr(log(M))
             log_det_v2 = jnp.sum(log_v2, axis=-1)  # log(det(M)) = tr(log(M))
             n = m1.shape[-1]
             assert n == m2.shape[-1] == log_v1.shape[-1] == log_v2.shape[-1]
-            if m2.ndim == log_v2.ndim == 1:
-                quad = jnp.dot(v1 + jnp.square(m1 - m2), v2_inv)
-            else:
-                assert m2.ndim == log_v2.ndim == 2
-                quad = jnp.einsum('ij,ij->i', v1 + jnp.square(m1 - m2), v2_inv)
+            quad = jnp.einsum('ij,ij->i', v1 + jnp.square(m1 - m2), v2_inv)
             return 0.5 * (log_det_v2 - log_det_v1 + quad - n)
 
         self._sample_func = jax.jit(sample)
@@ -125,9 +133,8 @@ class NormalDist(ProbaDist):
     def sample(self):
         r"""
 
-        JIT-compiled function that generates differentiable variates using the
-        reparametrization trick, i.e. :math:`x\sim\mathcal{N}(\mu,\sigma^2)` is
-        implemented as
+        JIT-compiled function that generates differentiable variates using the reparametrization
+        trick, i.e. :math:`x\sim\mathcal{N}(\mu,\sigma^2)` is implemented as
 
         .. math::
 
@@ -158,8 +165,8 @@ class NormalDist(ProbaDist):
     def mode(self):
         r"""
 
-        JIT-compiled functions that generates differentiable modes of the
-        distribution, in this case simply :math:`\mu`.
+        JIT-compiled functions that generates differentiable modes of the distribution, in this case
+        simply :math:`\mu`.
 
 
         Parameters
@@ -191,8 +198,7 @@ class NormalDist(ProbaDist):
 
         X : ndarray
 
-            A batch of variates, e.g. a batch of actions :math:`a` collected
-            from experience.
+            A batch of variates, e.g. a batch of actions :math:`a` collected from experience.
 
         Returns
         -------
@@ -235,8 +241,8 @@ class NormalDist(ProbaDist):
     def cross_entropy(self):
         r"""
 
-        JIT-compiled function that computes the cross-entropy of a distribution
-        :math:`q` relative to another categorical distribution :math:`p`:
+        JIT-compiled function that computes the cross-entropy of a distribution :math:`q` relative
+        to another categorical distribution :math:`p`:
 
         .. math::
 
@@ -254,8 +260,7 @@ class NormalDist(ProbaDist):
 
         dist_params_q : pytree with ndarray leaves
 
-            The distribution parameters of the *auxiliary* distribution
-            :math:`q`.
+            The distribution parameters of the *auxiliary* distribution :math:`q`.
 
         """
         return self._cross_entropy_func
@@ -264,9 +269,8 @@ class NormalDist(ProbaDist):
     def kl_divergence(self):
         r"""
 
-        JIT-compiled function that computes the Kullback-Leibler divergence of
-        a categorical distribution :math:`q` relative to another distribution
-        :math:`p`:
+        JIT-compiled function that computes the Kullback-Leibler divergence of a categorical
+        distribution :math:`q` relative to another distribution :math:`p`:
 
         .. math::
 
@@ -285,8 +289,7 @@ class NormalDist(ProbaDist):
 
         dist_params_q : pytree with ndarray leaves
 
-            The distribution parameters of the *auxiliary* distribution
-            :math:`q`.
+            The distribution parameters of the *auxiliary* distribution :math:`q`.
 
         """
         return self._kl_divergence_func
@@ -315,3 +318,39 @@ class NormalDist(ProbaDist):
 
         """
         return {'mu': jnp.zeros(shape=shape), 'logvar': jnp.zeros(shape=shape)}
+
+    def postprocess_variate(self, X):
+        r"""
+
+        The post-processor specific to variates drawn from this ditribution.
+
+        This method provides the interface between differentiable, batched variates, i.e. outputs
+        of :func:`sample` and :func:`mode` and the provided gym space.
+
+        For this specific distribution, the post-processor involves squashing to real-valued output
+        such that the output variate is properly confined to the :class:`gym.spaces.Box`, i.e.
+
+        .. math::
+
+            x\ =\ \text{low} + (\text{high} - \text{low})\times\text{sigmoid}(x_\text{raw})
+
+        Parameters
+        ----------
+        X : variates
+
+            A batch of variates sampled from this proba_dist. This will be converted into a single
+            variate. Note that if the batch size is greater than one, all but the first variate are
+            ignored.
+
+        Returns
+        -------
+        x : variate
+
+            A single variate that should satisfy :code:`self.space.contains(a)`.
+
+        """
+        x = onp.asarray(X[0], dtype=self.space.dtype).reshape(self.space.shape)
+        x = self.space.low + (self.space.high - self.space.low) * sigmoid(x)
+        assert self.space.contains(x), \
+            f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
+        return x

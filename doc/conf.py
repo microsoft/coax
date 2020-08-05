@@ -60,6 +60,7 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
     'sphinx_tabs.tabs',
+    'sphinx_paramlinks',
 ]
 
 
