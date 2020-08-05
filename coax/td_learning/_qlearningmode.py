@@ -112,7 +112,7 @@ class QLearningMode(BaseTD):
     def _init_funcs(self):
 
         def q_apply_func_type1(θ, state_q, rng, S, X_a, is_training):
-            """ type-I apply_func, except skipping the action_preprocessor """
+            """ type-1 apply_func, except skipping the action_preprocessor """
             rngs = hk.PRNGSequence(rng)
             body = self.q.func_approx.apply_funcs['body']
             comb = self.q.func_approx.apply_funcs['state_action_combiner']

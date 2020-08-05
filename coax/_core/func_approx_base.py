@@ -248,7 +248,7 @@ class BaseFuncApprox(ABC, SpaceUtilsMixin, RandomStateMixin, LoggerMixin):
     def head_q1(self, X_sa):
         r"""
 
-        A type-I q-function models the q-function as
+        A type-1 q-function models the q-function as
 
         .. math::
 
@@ -279,7 +279,7 @@ class BaseFuncApprox(ABC, SpaceUtilsMixin, RandomStateMixin, LoggerMixin):
     def head_q2(self, X_s):
         r"""
 
-        A type-II q-function models the q-function as
+        A type-2 q-function models the q-function as
 
         .. math::
 
@@ -290,7 +290,7 @@ class BaseFuncApprox(ABC, SpaceUtilsMixin, RandomStateMixin, LoggerMixin):
         The default implementation does multi-linear regression on top of the output of
         :attr:`body`.
 
-        For the time being, type-II q-functions are only implemented for discrete actions spaces.
+        For the time being, type-2 q-functions are only implemented for discrete actions spaces.
 
         Parameters
         ----------
@@ -688,7 +688,7 @@ class BaseFuncApprox(ABC, SpaceUtilsMixin, RandomStateMixin, LoggerMixin):
             'optimizer_state': opt.init(params),
         })
 
-        # state-action value head (type-I)
+        # state-action value head (type-1)
         func = hk.transform_with_state(self.head_q1)
         params, state = func.init(
             self.rng, X_sa, is_training=True)
@@ -699,7 +699,7 @@ class BaseFuncApprox(ABC, SpaceUtilsMixin, RandomStateMixin, LoggerMixin):
             'optimizer_state': opt.init(params),
         })
 
-        # state-action value head (type-II)
+        # state-action value head (type-2)
         if self.action_space_is_discrete:
             func = hk.transform_with_state(self.head_q2)
             params, state = func.init(

@@ -91,7 +91,7 @@ class V(BaseFunc):
         s = env.observation_space.sample()
         v(s)  # returns a float
 
-    The input ``S`` is a batch of state observations and ``is_training`` is single boolean flag
+    The input ``S`` is a batch of state observations and ``is_training`` is a single boolean flag
     that indicates whether or not to run the forward-pass in training mode.
 
     """

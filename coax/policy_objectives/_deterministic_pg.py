@@ -76,7 +76,7 @@ class DeterministicPG(PolicyObjective):
 
     def __init__(self, pi, q_targ, regularizer=None):
         if not (isinstance(q_targ, Q) and q_targ.qtype == 1):
-            raise TypeError(f"q must be a type-I q-function, got: {type(q_targ)}")
+            raise TypeError(f"q must be a type-1 q-function, got: {type(q_targ)}")
         self.q_targ = q_targ
         super().__init__(pi, regularizer)
         self._init_funcs()
@@ -84,7 +84,7 @@ class DeterministicPG(PolicyObjective):
     def _init_funcs(self):
 
         def q_apply_func_type1(params_q, state_q, rng, S, X_a, is_training):
-            """ type-I apply_func, except skipping the action_preprocessor """
+            """ type-1 apply_func, except skipping the action_preprocessor """
             rngs = hk.PRNGSequence(rng)
             body = self.q_targ.func_approx.apply_funcs['body']
             comb = self.q_targ.func_approx.apply_funcs['state_action_combiner']
