@@ -19,51 +19,87 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-import numpy as onp
+from functools import partial
+
+import gym
 import jax
 import jax.numpy as jnp
+import numpy as onp
+import haiku as hk
 
-from .._base.test_case import TestCase, DummyFuncApprox
-from ..utils import get_transition
+from .._base.test_case import TestCase
+from ..utils import single_to_batch, safe_sample
 from .value_q import Q
 
 
+# env = gym.make('Pendulum-v0')
+
+discrete = gym.spaces.Discrete(7)
+boxspace = gym.spaces.Box(low=0, high=1, shape=(2, 3))
+
+
+def func_type1(S, A, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, discrete.n)
+    if jnp.issubdtype(A.dtype, jnp.integer):
+        A = jax.nn.one_hot(A, discrete.n)
+
+    flatten = hk.Flatten()
+    batch_norm = hk.BatchNorm(False, False, 0.99)
+    seq = hk.Sequential((
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(1), jnp.ravel,
+    ))
+    X = jnp.concatenate((flatten(S), flatten(A)), axis=-1)
+    return seq(X)
+
+
+def func_type2(S, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, discrete.n)
+
+    batch_norm = hk.BatchNorm(False, False, 0.99)
+    seq = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(discrete.n),
+    ))
+    return seq(S)
+
+
 class TestQ(TestCase):
+    decimal = 5
 
-    def setUp(self):
-        self.funcs = {
-            'discrete': DummyFuncApprox(self.env_discrete),
-            'box': DummyFuncApprox(self.env_box)}
-        self.transitions = {
-            'discrete': get_transition(self.env_discrete),
-            'box': get_transition(self.env_box)}
-        self.transitions_batch = {
-            'discrete': get_transition(self.env_discrete).to_batch(),
-            'box': get_transition(self.env_box).to_batch()}
+    def test_init(self):
+        # cannot define a type-2 q-function on a non-discrete action space
+        msg = r"type-2 q-functions are only well-defined for Discrete action spaces"
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(func_type2, boxspace, boxspace)
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(func_type2, discrete, boxspace)
 
-    def tearDown(self):
-        del self.funcs, self.transitions, self.transitions_batch
-
-    def test_qtype2_nondiscrete(self):
-        # cannot define a type-II q-function on a non-discrete action space
-        msg = ("type-II q-function is not (yet) implemented for "
-               "non-discrete action spaces")
-        with self.assertRaises(NotImplementedError, msg=msg):
-            Q(self.funcs['box'], qtype=2)
-
-        # this should be fine
-        Q(self.funcs['box'], qtype=1)
-        Q(self.funcs['discrete'], qtype=1)
-        Q(self.funcs['discrete'], qtype=2)
+        # these should all be fine
+        Q(func_type2, boxspace, discrete)
+        Q(func_type1, boxspace, boxspace)
+        Q(func_type1, boxspace, discrete)
+        Q(func_type2, discrete, discrete)
+        Q(func_type1, discrete, boxspace)
+        Q(func_type1, discrete, discrete)
 
     def test_batch_eval_type1_discrete(self):
-        S = self.transitions_batch['discrete'].S
-        A = self.transitions_batch['discrete'].A
-        q = Q(self.funcs['discrete'], qtype=1)
+        S = single_to_batch(safe_sample(boxspace, seed=11))
+        A = single_to_batch(safe_sample(discrete, seed=11))
+        q = Q(func_type1, boxspace, discrete)
 
         # without A
         Q_s = q.batch_eval(S)
-        self.assertArrayShape(Q_s, (1, self.env_discrete.action_space.n))
+        self.assertArrayShape(Q_s, (1, discrete.n))
         self.assertArraySubdtypeFloat(Q_s)
 
         # with A
@@ -73,13 +109,13 @@ class TestQ(TestCase):
         self.assertArrayAlmostEqual(Q_sa, Q_s[:, A[0]])
 
     def test_batch_eval_type2_discrete(self):
-        S = self.transitions_batch['discrete'].S
-        A = self.transitions_batch['discrete'].A
-        q = Q(self.funcs['discrete'], qtype=2)
+        S = single_to_batch(safe_sample(boxspace, seed=13))
+        A = single_to_batch(safe_sample(discrete, seed=13))
+        q = Q(func_type2, boxspace, discrete)
 
         # without A
         Q_s = q.batch_eval(S)
-        self.assertArrayShape(Q_s, (1, self.env_discrete.action_space.n))
+        self.assertArrayShape(Q_s, (1, discrete.n))
         self.assertArraySubdtypeFloat(Q_s)
 
         # with A
@@ -89,13 +125,13 @@ class TestQ(TestCase):
         self.assertArrayAlmostEqual(Q_sa, Q_s[:, A[0]])
 
     def test_batch_eval_type1_box(self):
-        S = self.transitions_batch['box'].S
-        A = self.transitions_batch['box'].A
-        q = Q(self.funcs['box'], qtype=1)
+        S = single_to_batch(safe_sample(boxspace, seed=17))
+        A = single_to_batch(safe_sample(boxspace, seed=17))
+        q = Q(func_type1, boxspace, boxspace)
 
-        # type-I requires A
-        msg = "input 'A' is required for type-I q-function when action space is non-discrete"
-        with self.assertRaises(ValueError, msg=msg):
+        # type-1 requires A
+        msg = r"input 'A' is required for type-1 q-function when action space is non-Discrete"
+        with self.assertRaisesRegex(ValueError, msg):
             q.batch_eval(S)
 
         Q_sa = q.batch_eval(S, A)
@@ -103,13 +139,13 @@ class TestQ(TestCase):
         self.assertArraySubdtypeFloat(Q_sa)
 
     def test_call_type1_discrete(self):
-        s = self.transitions['discrete'].s
-        a = self.transitions['discrete'].a
-        q = Q(self.funcs['discrete'], qtype=1)
+        s = safe_sample(boxspace, seed=19)
+        a = safe_sample(discrete, seed=19)
+        q = Q(func_type1, boxspace, discrete)
 
         # without a
         q_s = q(s)
-        self.assertArrayShape(q_s, (self.env_discrete.action_space.n,))
+        self.assertArrayShape(q_s, (discrete.n,))
         self.assertArraySubdtypeFloat(q_s)
 
         # with a
@@ -119,13 +155,13 @@ class TestQ(TestCase):
         self.assertArrayAlmostEqual(q_sa, q_s[a])
 
     def test_call_type2_discrete(self):
-        s = self.transitions['discrete'].s
-        a = self.transitions['discrete'].a
-        q = Q(self.funcs['discrete'], qtype=2)
+        s = safe_sample(boxspace, seed=23)
+        a = safe_sample(discrete, seed=23)
+        q = Q(func_type2, boxspace, discrete)
 
         # without a
         q_s = q(s)
-        self.assertArrayShape(q_s, (self.env_discrete.action_space.n,))
+        self.assertArrayShape(q_s, (discrete.n,))
         self.assertArraySubdtypeFloat(q_s)
 
         # with a
@@ -135,13 +171,13 @@ class TestQ(TestCase):
         self.assertArrayAlmostEqual(q_sa, q_s[a])
 
     def test_call_type1_box(self):
-        s = self.transitions['box'].s
-        a = self.transitions['box'].a
-        q = Q(self.funcs['box'], qtype=1)
+        s = safe_sample(boxspace, seed=29)
+        a = safe_sample(boxspace, seed=29)
+        q = Q(func_type1, boxspace, boxspace)
 
-        # type-I requires a if actions space is non-discrete
-        msg = "input 'A' is required for type-I q-function when action space is non-discrete"
-        with self.assertRaises(ValueError, msg=msg):
+        # type-1 requires a if actions space is non-discrete
+        msg = r"input 'A' is required for type-1 q-function when action space is non-Discrete"
+        with self.assertRaisesRegex(ValueError, msg):
             q(s)
 
         # with a
@@ -150,8 +186,8 @@ class TestQ(TestCase):
         self.assertArraySubdtypeFloat(q_sa)
 
     def test_apply_q1_as_q2(self):
-        n = 3  # num_actions
-        q = Q(self.funcs['discrete'], qtype=1)
+        n = discrete.n  # num_actions
+        q = Q(func_type1, boxspace, discrete)
 
         def q1_func(params, state, rng, S, A, is_training):
             return jnp.array([encode(s, a) for s, a in zip(S, A)]), state
@@ -165,14 +201,14 @@ class TestQ(TestCase):
             s = onp.argwhere(b[n:] == '1').item()
             return s, a
 
-        q._apply_func = q1_func
+        q._function = q1_func
         rng = jax.random.PRNGKey(0)
-        params = {'body': (), 'action_processor': (), 'state_action_combiner': (), 'head_q1': ()}
-        state = {'body': (), 'action_processor': (), 'state_action_combiner': (), 'head_q1': ()}
+        params = ()
+        state = ()
         is_training = True
 
         S = jnp.array([5, 7, 11, 13, 17, 19, 23])
-        encoded_rows, _ = q.apply_func_type2(params, state, rng, S, is_training)
+        encoded_rows, _ = q.function_type2(params, state, rng, S, is_training)
         for s, encoded_row in zip(S, encoded_rows):
             for a, x in enumerate(encoded_row):
                 s_, a_ = decode(x)
@@ -180,19 +216,69 @@ class TestQ(TestCase):
                 self.assertEqual(a_, a)
 
     def test_apply_q2_as_q1(self):
-        n = 3  # num_actions
-        q = Q(self.funcs['discrete'], qtype=2)
+        n = discrete.n  # num_actions
+        q = Q(func_type2, boxspace, discrete)
 
         def q2_func(params, state, rng, S, is_training):
             return jnp.tile(jnp.arange(n), reps=(S.shape[0], 1)), state
 
-        q._apply_func = q2_func
+        q._function = q2_func
         rng = jax.random.PRNGKey(0)
-        params = {'body': (), 'head_q2': ()}
-        state = {'body': (), 'head_q2': ()}
+        params = ()
+        state = ()
         is_training = True
 
         S = jnp.array([5, 7, 11, 13, 17, 19, 23])
         A = jnp.array([2, 0, 1, 1, 0, 1, 2])
-        Q_sa, _ = q.apply_func_type1(params, state, rng, S, A, is_training)
+        Q_sa, _ = q.function_type1(params, state, rng, S, A, is_training)
         self.assertArrayAlmostEqual(Q_sa, A)
+
+    def test_soft_update(self):
+        tau = 0.13
+        q = Q(func_type1, boxspace, discrete)
+        q_targ = q.copy()
+        q.params = jax.tree_map(jnp.ones_like, q.params)
+        q_targ.params = jax.tree_map(jnp.zeros_like, q.params)
+        expected = jax.tree_map(lambda a: jnp.full_like(a, tau), q.params)
+        q_targ.soft_update(q, tau=tau)
+        self.assertPytreeAlmostEqual(q_targ.params, expected)
+
+    def test_function_state(self):
+        q = Q(func_type1, boxspace, discrete, random_seed=11)
+        print(q.function_state)
+        self.assertArrayAlmostEqual(
+            q.function_state['batch_norm/~/mean_ema']['average'],
+            jnp.array([[0, 0.28637, 0, 0.03926, 0, 0.09223, 0, 0]]))
+
+    def test_bad_input_signature(self):
+        def badfunc(S, A, is_training, x):
+            pass
+        msg = (
+            r"func has bad signature; "
+            r"expected: func\(S, A, is_training\) or func\(S, is_training\), "
+            r"got: func\(S, A, is_training, x\)")
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(badfunc, boxspace, discrete)
+
+    def test_bad_output_type(self):
+        def badfunc(S, A, is_training):
+            return 'garbage'
+        msg = r"func has bad return type; expected jnp\.ndarray, got str"
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(badfunc, boxspace, discrete)
+
+    def test_bad_output_shape(self):
+        def badfunc(S, A, is_training):
+            Q = func_type1(S, A, is_training)
+            return jnp.expand_dims(Q, axis=-1)
+        msg = r"func has bad return shape; expected ndim=1, got ndim=2"
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(badfunc, boxspace, discrete)
+
+    def test_bad_output_dtype(self):
+        def badfunc(S, A, is_training):
+            Q = func_type1(S, A, is_training)
+            return Q.astype('int32')
+        msg = r"func has bad return dtype; expected a subdtype of jnp\.floating, got dtype=int32"
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(badfunc, boxspace, discrete)

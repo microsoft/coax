@@ -19,13 +19,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+from inspect import signature
+
+import gym
 import jax
 import jax.numpy as jnp
-import haiku as hk
 
-from .._base.bases import BaseFunc
-from .._base.mixins import ParamMixin
-from ..utils import single_to_batch, batch_to_single
+from ..utils import single_to_batch, batch_to_single, safe_sample
+from .base_func import BaseFunc
 
 
 __all__ = (
@@ -33,58 +34,160 @@ __all__ = (
 )
 
 
-class Q(BaseFunc, ParamMixin):
+class Q(BaseFunc):
     r"""
 
     A state-action value function :math:`q(s,a)`.
 
     Parameters
     ----------
-    func_approx : function approximator
+    func : function
 
-        This must be an instance of :class:`FuncApprox <coax.FuncApprox>` or a
-        subclass thereof.
+        A Haiku-style function that specifies the forward pass. The function signature must be the
+        same as the example below.
 
-    qtype : 1 or 2, optional
+    observation_space : gym.Space
 
-        Whether to model the value function as a **type-I** q-function:
+        The observation space of the environment. This is used to generate example input for
+        initializing :attr:`params`.
 
-        .. math::
+    action_space : gym.Space
 
-            (s, a)\ \mapsto\ q(s,a) \in \mathbb{R}
+        The action space of the environment. This may be used to generate example input for
+        initializing :attr:`params` or to validate the output structure.
 
-        or as a **type-II** q-function:
+    optimizer : optix optimizer, optional
 
-        .. math::
+        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
+        <jax.experimental.optix.adam>`.
 
-            s\ \mapsto\ q(s,.) \in \mathbb{R}^n
 
-        Here :math:`n` is the number of discrete actions. Naturally, this only
-        applies to discrete action spaces.
+    Examples
+    --------
+
+    Here's an example where the observation space and the action space are both a
+    :class:`gym.spaces.Box`.
+
+    .. code:: python
+
+        from functools import partial
+
+        import gym
+        import coax
+        import jax
+        import jax.numpy as jnp
+        import haiku as hk
+        from jax.experimental import optix
+
+
+        def func(S, A, is_training):
+            rng1, rng2, rng3 = hk.next_rng_keys(3)
+            rate = 0.25 if is_training else 0.
+            seq = hk.Sequential((
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng1, rate),
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng2, rate),
+                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng3, rate),
+                hk.Linear(1, w_init=jnp.zeros), jnp.ravel,
+            ))
+            return seq(jnp.concatenate((S, A), axis=-1))
+
+
+        env = gym.make('Pendulum-v0')
+
+        # the state value function
+        q = coax.Q(func, env.observation_space, env.action_space, optimizer=optix.adam(0.01))
+
+        # example usage:
+        s = env.observation_space.sample()
+        a = env.action_space.sample()
+        q(s, a)  # returns a float
+
+
+    The inputs ``S`` and ``A`` are batches of state observations and actions respectively, and
+    ``is_training`` is a single boolean flag that indicates whether or not to run the forward-pass
+    in training mode.
+
+    **Discrete action spaces**
+
+    Here's an example where the action space is :class:`gym.spaces.Discrete`. Having a discrete
+    action space reveals some additional functionality. This comes from the fact that we may model
+    the q-function in two different ways, which we refer to type-1 and type-2:
+
+    .. math::
+
+        (s,a)   &\mapsto q(s,a)\in\mathbb{R}    &\qquad (\text{qtype} &= 1) \\
+        s       &\mapsto q(s,.)\in\mathbb{R}^n  &\qquad (\text{qtype} &= 2)
+
+    where :math:`n` is the number of discrete actions. A **type-1** q-function is defined in the
+    standard way, i.e. similar to what we did for a non-discrete actions (above):
+
+    .. code:: python
+
+        env = gym.make('CartPole-v0')
+
+        def func_type1(S, A, is_training):
+            seq = hk.Sequential((
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(1, w_init=jnp.zeros), jnp.ravel,
+            ))
+            A = jax.nn.one_hot(A, env.action_space.n)
+            return seq(jnp.concatenate((S, A), axis=-1))
+
+        q = coax.Q(func_type1, env.observation_space, env.action_space)
+
+    A **type-2** q-function is defined differently. The forward-pass function omits the action input
+    and returns a vector of size :math:`n`:
+
+    .. code:: python
+
+        def func_type2(S, is_training):
+            seq = hk.Sequential((
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(8), jax.nn.relu,
+                hk.Linear(env.action_space.n, w_init=jnp.zeros),
+            ))
+            return seq(S)
+
+        q = coax.Q(func_type2, env.observation_space, env.action_space)
+
+    An additional feature of discrete action spaces is that we may omit the action inputs, e.g.
+
+    .. code:: python
+
+        q(s, a)  # returns a single float
+        q(s)     # returns a vector of floats
+
+    This functionality works for both type-1 and type-2 q-functions. Finally, we remark that the
+    q-function type is accessible as the :attr:`qtype` property.
 
     """
-    COMPONENTS_TYPE1 = (
-        'body',
-        'head_q1',
-        'action_preprocessor',
-        'action_postprocessor',
-        'state_action_combiner',
-    )
-    COMPONENTS_TYPE2 = (
-        'body',
-        'head_q2',
-        'action_preprocessor',
-        'action_postprocessor',
-    )
 
-    def __init__(self, func_approx, qtype=1):
-        super().__init__(func_approx)
-        self._init_qtype(qtype)  # sets self._qtype and self.COMPONENTS
-        self._init_funcs()
+    def __init__(self, func, observation_space, action_space, optimizer=None, random_seed=None):
+        super().__init__(
+            func,
+            observation_space=observation_space,
+            action_space=action_space,
+            optimizer=optimizer,
+            random_seed=random_seed)
 
-    @property
-    def qtype(self):
-        return self._qtype
+        def apply_single_type1(params, state, rng, s, a):
+            S = single_to_batch(s)
+            A = single_to_batch(a)
+            Q_sa, _ = self.function_type1(params, state, rng, S, A, False)
+            q_sa = batch_to_single(Q_sa)
+            return q_sa
+
+        def apply_single_type2(params, state, rng, s):
+            S = single_to_batch(s)
+            Q_s, _ = self.function_type2(params, state, rng, S, False)
+            q_s = batch_to_single(Q_s)
+            return q_s
+
+        self._apply_single_type1 = jax.jit(apply_single_type1)
+        self._apply_single_type2 = jax.jit(apply_single_type2)
 
     def __call__(self, s, a=None):
         r"""
@@ -112,13 +215,13 @@ class Q(BaseFunc, ParamMixin):
             discrete action spaces.
 
         """
-        s = self.func_approx._preprocess_state(s)
-        assert self.env.observation_space.contains(s), f"bad state: {s}"
+        s = self._preprocess_state(s)
+        assert self.observation_space.contains(s), f"bad state: {s}"
         if a is None:
-            return self._apply_single_type2_func(self.params, self.function_state, self.rng, s)
+            return self._apply_single_type2(self.params, self.function_state, self.rng, s)
 
-        assert self.env.action_space.contains(a), f"bad action: {a}"
-        return self._apply_single_type1_func(self.params, self.function_state, self.rng, s, a)
+        assert self.action_space.contains(a), f"bad action: {a}"
+        return self._apply_single_type1(self.params, self.function_state, self.rng, s, a)
 
     def batch_eval(self, S, A=None):
         r"""
@@ -149,85 +252,19 @@ class Q(BaseFunc, ParamMixin):
 
         """
         if A is None:
-            Q, _ = self.apply_func_type2(self.params, self.function_state, self.rng, S, False)
+            Q, _ = self.function_type2(self.params, self.function_state, self.rng, S, False)
         else:
-            Q, _ = self.apply_func_type1(self.params, self.function_state, self.rng, S, A, False)
+            Q, _ = self.function_type1(self.params, self.function_state, self.rng, S, A, False)
         return Q
 
-    def _init_qtype(self, qtype):
-        if qtype not in (1, 2):
-            raise ValueError("qtype must be either 1 or 2")
-        if qtype == 2 and not self.action_space_is_discrete:
-            raise NotImplementedError(
-                "type-II q-function is not (yet) implemented for non-discrete "
-                "action spaces")
-        self._qtype = int(qtype)
-        if self._qtype == 1:
-            self.COMPONENTS = self.__class__.COMPONENTS_TYPE1
-        else:
-            self.COMPONENTS = self.__class__.COMPONENTS_TYPE2
-
-    def _init_funcs(self):
-        if self.qtype == 1:
-            # take both S and A as input
-            def apply_func(params, state, rng, S, A, is_training):
-                rngs = hk.PRNGSequence(rng)
-                body = self.func_approx.apply_funcs['body']
-                actn = self.func_approx.apply_funcs['action_preprocessor']
-                comb = self.func_approx.apply_funcs['state_action_combiner']
-                head = self.func_approx.apply_funcs['head_q1']
-                state_new = state.copy()  # shallow copy
-                X_s, state_new['body'] = body(
-                    params['body'], state['body'], next(rngs), S, is_training)
-                X_a = actn(params['action_preprocessor'], next(rngs), A)
-                X_sa, state_new['state_action_combiner'] = comb(
-                    params['state_action_combiner'], state['state_action_combiner'], next(rngs),
-                    X_s, X_a, is_training)
-                Q_sa, state_new['head_q1'] = \
-                    head(params['head_q1'], state['head_q1'], next(rngs), X_sa, is_training)
-                return jnp.squeeze(Q_sa, axis=1), state_new
-
-            self._apply_func = jax.jit(apply_func, static_argnums=5)
-
-        else:
-            # take only S as input
-            def apply_func(params, state, rng, S, is_training):
-                rngs = hk.PRNGSequence(rng)
-                body = self.func_approx.apply_funcs['body']
-                head = self.func_approx.apply_funcs['head_q2']
-                state_new = state.copy()  # shallow copy
-                X_s, state_new['body'] = \
-                    body(params['body'], state['body'], next(rngs), S, is_training)
-                Q_s, state_new['head_q2'] = \
-                    head(params['head_q2'], state['head_q2'], next(rngs), X_s, is_training)
-                return Q_s, state_new
-
-            self._apply_func = jax.jit(apply_func, static_argnums=4)
-
-        def apply_single_type1_func(params, state, rng, s, a):
-            S = single_to_batch(s)
-            A = single_to_batch(a)
-            Q_sa, _ = self.apply_func_type1(params, state, rng, S, A, False)
-            q_sa = batch_to_single(Q_sa)
-            return q_sa
-
-        def apply_single_type2_func(params, state, rng, s):
-            S = single_to_batch(s)
-            Q_s, _ = self.apply_func_type2(params, state, rng, S, False)
-            q_s = batch_to_single(Q_s)
-            return q_s
-
-        self._apply_single_type1_func = jax.jit(apply_single_type1_func)
-        self._apply_single_type2_func = jax.jit(apply_single_type2_func)
-
     @property
-    def apply_func_type1(self):
+    def function_type1(self):
         r"""
 
         JIT-compiled function responsible for the forward-pass through the underlying function
         approximator. This function is used by the :attr:`batch_eval` and :attr:`__call__` methods.
 
-        This is the type-I version of the apply-function, regardless of the underlying
+        This is the type-1 version of the apply-function, regardless of the underlying
         :attr:`qtype`.
 
         Parameters
@@ -270,29 +307,27 @@ class Q(BaseFunc, ParamMixin):
 
         """
         if self.qtype == 1:
-            return self._apply_func
+            return self.function
 
-        if not self.action_space_is_discrete:
-            raise ValueError(
-                "cannot apply type-II q-function as a type-I q-function if "
-                "the action space is non-discrete")
+        assert isinstance(self.action_space, gym.spaces.Discrete)
+        n = self.action_space.n
 
         def q1_func(q2_params, q2_state, rng, S, A, is_training):
-            A_onehot = jax.nn.one_hot(A, self.num_actions)
-            Q_s, state_new = self._apply_func(q2_params, q2_state, rng, S, is_training)
+            A_onehot = jax.nn.one_hot(A, n)
+            Q_s, state_new = self.function(q2_params, q2_state, rng, S, is_training)
             Q_sa = jnp.einsum('ij,ij->i', A_onehot, Q_s)
             return Q_sa, state_new
 
         return q1_func
 
     @property
-    def apply_func_type2(self):
+    def function_type2(self):
         r"""
 
         JIT-compiled function responsible for the forward-pass through the underlying function
         approximator. This function is used by the :attr:`batch_eval` and :attr:`__call__` methods.
 
-        This is the type-II version of the apply-function, regardless of the underlying
+        This is the type-2 version of the apply-function, regardless of the underlying
         :attr:`qtype`.
 
         Parameters
@@ -332,25 +367,96 @@ class Q(BaseFunc, ParamMixin):
 
         """
         if self.qtype == 2:
-            return self._apply_func
+            return self.function
 
-        if not self.action_space_is_discrete:
+        if not isinstance(self.action_space, gym.spaces.Discrete):
             raise ValueError(
-                "cannot apply type-I q-function as a type-II q-function if "
-                "the action space is non-discrete")
+                "input 'A' is required for type-1 q-function when action space is non-Discrete")
+
+        n = self.action_space.n
 
         def q2_func(q1_params, q1_state, rng, S, is_training):
             # example: let S = [7, 2, 5, 8] and num_actions = 3, then
             # S_rep = [7, 7, 7, 2, 2, 2, 5, 5, 5, 8, 8, 8]  # repeated
             # A_rep = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2]  # tiled
-            S_rep = jnp.repeat(S, self.num_actions, axis=0)
-            A_rep = jnp.tile(jnp.arange(self.num_actions), S.shape[0])
+            S_rep = jnp.repeat(S, n, axis=0)
+            A_rep = jnp.tile(jnp.arange(n), S.shape[0])
 
             # evaluate on replicas => output shape: (batch * num_actions, 1)
-            Q_sa_rep, state_new = \
-                self._apply_func(q1_params, q1_state, rng, S_rep, A_rep, is_training)
-            Q_s = Q_sa_rep.reshape(-1, self.num_actions)  # shape: (batch, num_actions)
+            Q_sa_rep, state_new = self.function(q1_params, q1_state, rng, S_rep, A_rep, is_training)
+            Q_s = Q_sa_rep.reshape(-1, n)  # shape: (batch, num_actions)
 
             return Q_s, state_new
 
         return q2_func
+
+    @property
+    def qtype(self):
+        r"""
+
+        Specifier for how the q-function is modeled, i.e.
+
+        .. math::
+
+            (s,a)   &\mapsto q(s,a)\in\mathbb{R}    &\qquad (\text{qtype} &= 1) \\
+            s       &\mapsto q(s,.)\in\mathbb{R}^n  &\qquad (\text{qtype} &= 2)
+
+        Note that qtype=2 is only well-defined if the action space is :class:`Discrete
+        <gym.spaces.Discrete>`. Namely, :math:`n` is the number of discrete actions.
+
+        """
+        return self._qtype
+
+    def _check_signature(self, func):
+        sig_type1 = ('S', 'A', 'is_training')
+        sig_type2 = ('S', 'is_training')
+
+        discrete = isinstance(self.action_space, gym.spaces.Discrete)
+        sig = tuple(signature(func).parameters)
+
+        if sig not in (sig_type1, sig_type2):
+            sig = ', '.join(sig)
+            alt = ' or func(S, is_training)' if discrete else ''
+            raise TypeError(
+                f"func has bad signature; expected: func(S, A, is_training){alt}, got: func({sig})")
+
+        if sig == sig_type2 and not discrete:
+            raise TypeError("type-2 q-functions are only well-defined for Discrete action spaces")
+
+        # example inputs
+        S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
+        A = single_to_batch(safe_sample(self.action_space, seed=self.random_seed))
+        is_training = True
+
+        if sig == sig_type1:
+            self._qtype = 1
+            example_inputs = (S, A, is_training)
+            static_argnums = (2,)
+        else:
+            self._qtype = 2
+            example_inputs = (S, is_training)
+            static_argnums = (1,)
+
+        return example_inputs, static_argnums
+
+    def _check_output(self, example_output):
+        if not isinstance(example_output, jnp.ndarray):
+            class_name = example_output.__class__.__name__
+            raise TypeError(f"func has bad return type; expected jnp.ndarray, got {class_name}")
+
+        if not jnp.issubdtype(example_output.dtype, jnp.floating):
+            dt = example_output.dtype
+            raise TypeError(
+                f"func has bad return dtype; expected a subdtype of jnp.floating, got dtype={dt}")
+
+        if self.qtype == 1 and example_output.ndim != 1:
+            ndim = example_output.ndim
+            raise TypeError(f"func has bad return shape; expected ndim=1, got ndim={ndim}")
+
+        if self.qtype == 2 and example_output.ndim != 2:
+            ndim = example_output.ndim
+            raise TypeError(f"func has bad return shape; expected ndim=2, got ndim={ndim}")
+
+        if self.qtype == 2 and example_output.shape[1] != self.action_space.n:
+            k = example_output.shape[1]
+            raise TypeError(f"func has bad return shape; expected shape=(?, 2), got shape=(?, {k})")
