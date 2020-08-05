@@ -24,7 +24,7 @@ from inspect import signature
 import jax
 import jax.numpy as jnp
 
-from ..utils import single_to_batch, batch_to_single
+from ..utils import single_to_batch, batch_to_single, safe_sample
 from .base_func import BaseFunc
 
 
@@ -155,12 +155,20 @@ class V(BaseFunc):
         V, _ = self.function(self.params, self.function_state, self.rng, S, False)
         return V
 
-    def _check_argspec(self, func):
+    def _check_signature(self, func):
         if tuple(signature(func).parameters) != ('S', 'is_training'):
-            argspec = ', '.join(signature(func).parameters)
+            sig = ', '.join(signature(func).parameters)
             raise TypeError(
-                f"func has bad argspec; expected: func(S, is_training), got: func({argspec})")
-        return 1 + 3  # static_argnums; the +3 offset is due to (params, state, rng) args
+                f"func has bad signature; expected: func(S, is_training), got: func({sig})")
+
+        # example inputs
+        S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
+        is_training = True
+
+        # the +3 offset is due to the (params, state, rng) args of the transformed function
+        static_argnums = 1 + 3
+
+        return (S, is_training), static_argnums
 
     def _check_output(self, example_output):
         if not isinstance(example_output, jnp.ndarray):
