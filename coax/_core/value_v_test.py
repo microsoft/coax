@@ -73,14 +73,44 @@ class TestV(TestCase):
         tau = 0.13
         v = self.v
         v_targ = v.copy()
-        v.params = jax.tree_map(jnp.zeros_like, v.params)
-        v_targ.params = jax.tree_map(jnp.ones_like, v.params)
+        v.params = jax.tree_map(jnp.ones_like, v.params)
+        v_targ.params = jax.tree_map(jnp.zeros_like, v.params)
         expected = jax.tree_map(lambda a: jnp.full_like(a, tau), v.params)
-        v.soft_update(v_targ, tau=tau)
-        self.assertPytreeAlmostEqual(v.params, expected)
+        v_targ.soft_update(v, tau=tau)
+        self.assertPytreeAlmostEqual(v_targ.params, expected)
 
     def test_function_state(self):
         print(self.v.function_state)
         self.assertArrayAlmostEqual(
             self.v.function_state['batch_norm/~/mean_ema']['average'],
             jnp.array([[0, 0.139146, 1.829144, 0, 0, 0.954466, 0, 0]]))
+
+    def test_bad_input_signature(self):
+        def badfunc(S, is_training, x):
+            pass
+        msg = "func has bad signature; expected: func(S, is_training), got: func(S, is_training, x)"
+        with self.assertRaises(TypeError, msg=msg):
+            V(badfunc, self.env_discrete.observation_space, random_seed=13)
+
+    def test_bad_output_type(self):
+        def badfunc(S, is_training):
+            return 'garbage'
+        msg = "func has bad return type; expected jnp.ndarray, got str"
+        with self.assertRaises(TypeError, msg=msg):
+            V(badfunc, self.env_discrete.observation_space, random_seed=13)
+
+    def test_bad_output_shape(self):
+        def badfunc(S, is_training):
+            V = func(S, is_training)
+            return jnp.expand_dims(V, axis=-1)
+        msg = "func has bad return shape; expected ndim=1, got ndim=2"
+        with self.assertRaises(TypeError, msg=msg):
+            V(badfunc, self.env_discrete.observation_space, random_seed=13)
+
+    def test_bad_output_dtype(self):
+        def badfunc(S, is_training):
+            V = func(S, is_training)
+            return V.astype('int32')
+        msg = "func has bad return dtype; expected a subdtype of jnp.floating, got dtype=int32"
+        with self.assertRaises(TypeError, msg=msg):
+            V(badfunc, self.env_discrete.observation_space, random_seed=13)
