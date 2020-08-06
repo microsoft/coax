@@ -27,7 +27,6 @@ import haiku as hk
 import numpy as onp
 
 from .._base.test_case import TestCase
-from .value_q import Q
 from .random_policy import RandomPolicy
 
 

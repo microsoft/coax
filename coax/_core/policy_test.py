@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-from typing import Mapping
 from functools import partial
 
 import gym
@@ -29,7 +28,7 @@ import numpy as onp
 import haiku as hk
 
 from .._base.test_case import TestCase
-from ..utils import single_to_batch, safe_sample
+from ..utils import safe_sample
 from .policy import Policy
 
 
