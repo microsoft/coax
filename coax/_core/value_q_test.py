@@ -43,11 +43,13 @@ def func_type1(S, A, is_training):
         A = jax.nn.one_hot(A, discrete.n)
 
     flatten = hk.Flatten()
-    batch_norm = hk.BatchNorm(False, False, 0.99)
+    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
+    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
+
     seq = hk.Sequential((
         hk.Linear(8), jax.nn.relu,
-        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
-        partial(batch_norm, is_training=is_training),
+        dropout,
+        batch_norm,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(1), jnp.ravel,
     ))
@@ -59,12 +61,14 @@ def func_type2(S, is_training):
     if jnp.issubdtype(S.dtype, jnp.integer):
         S = jax.nn.one_hot(S, discrete.n)
 
-    batch_norm = hk.BatchNorm(False, False, 0.99)
+    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
+    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
+
     seq = hk.Sequential((
         hk.Flatten(),
         hk.Linear(8), jax.nn.relu,
-        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
-        partial(batch_norm, is_training=is_training),
+        dropout,
+        batch_norm,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(discrete.n),
     ))
