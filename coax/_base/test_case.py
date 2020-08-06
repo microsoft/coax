@@ -24,21 +24,17 @@ import unittest
 from collections import namedtuple
 from contextlib import AbstractContextManager
 from resource import getrusage, RUSAGE_SELF
-from functools import partial
 
 import gym
 import jax
 import jax.numpy as jnp
 import numpy as onp
-import haiku as hk
-from jax.experimental import optix
 
 from ..wrappers import BoxActionsToReals
 
 __all__ = (
     'DiscreteEnv',
     'BoxEnv',
-    'DummyFuncApprox',
     'TestCase',
     'MemoryProfiler',
 )
@@ -79,26 +75,6 @@ def BoxEnv(random_seed):
         low=onp.float32(0), high=onp.float32(1), shape=(3, 5))
     env['action_space'].seed(7 * random_seed)
     return MockEnv(**env)
-
-
-def DummyFuncApprox(env, learning_rate=1.):
-    from .._core.func_approx import FuncApprox  # avoid circular dependence
-
-    class cls(FuncApprox):
-        def body(self, S, is_training):
-            batch_norm = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.95)
-            batch_norm = partial(batch_norm, is_training=is_training)
-
-            seq = hk.Sequential((
-                hk.Linear(7), batch_norm, jnp.tanh,
-                hk.Linear(1), jax.nn.sigmoid,
-            ))
-            return seq(S)
-
-        def optimizer(self):
-            return optix.sgd(self.optimizer_kwargs.get('learning_rate', 1e-3))
-
-    return cls(env, random_seed=(17 * env.random_seed), learning_rate=learning_rate)
 
 
 class MemoryProfiler(AbstractContextManager):
