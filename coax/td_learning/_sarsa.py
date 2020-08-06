@@ -94,14 +94,14 @@ class Sarsa(BaseTD):
 
         def target(params, state, rng, Rn, In, S_next, A_next):
             f, f_inv = self.value_transform
-            Q_sa_next, _ = self.q_targ.apply_func_type1(params, state, rng, S_next, A_next, False)
+            Q_sa_next, _ = self.q_targ.function_type1(params, state, rng, S_next, A_next, False)
             return f(Rn + In * f_inv(Q_sa_next))
 
         def loss_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, A_next, _ = transition_batch
             G = target(target_params, state, next(rngs), Rn, In, S_next, A_next)
-            Q, state_new = self.q.apply_func_type1(params, state, next(rngs), S, A, True)
+            Q, state_new = self.q.function_type1(params, state, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
             return loss, (loss, G, Q, S, A, state_new)
 
@@ -112,7 +112,7 @@ class Sarsa(BaseTD):
                     params, target_params, state, next(rngs), transition_batch)
 
             # target-network estimate
-            Q_targ, _ = self.q_targ.apply_func_type1(target_params, state, next(rngs), S, A, False)
+            Q_targ, _ = self.q_targ.function_type1(target_params, state, next(rngs), S, A, False)
 
             # residuals: estimate - better_estimate
             err = Q - G
@@ -135,7 +135,7 @@ class Sarsa(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, A_next, _ = transition_batch
             G = target(target_params, state, next(rngs), Rn, In, S_next, A_next)
-            Q, _ = self.q.apply_func_type1(params, state, next(rngs), S, A, False)
+            Q, _ = self.q.function_type1(params, state, next(rngs), S, A, False)
             return G - Q
 
         self._grads_and_metrics_func = jax.jit(grads_and_metrics_func)

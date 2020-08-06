@@ -19,6 +19,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import gym
 import jax
 import jax.numpy as jnp
 import haiku as hk
@@ -89,10 +90,10 @@ class DoubleQLearning(BaseTD):
     """
     def __init__(self, q, q_targ=None, loss_function=None, value_transform=None):
 
-        if not q.action_space_is_discrete:
+        if not isinstance(q.action_space, gym.spaces.Discrete):
             raise NotImplementedError(
-                "QLearning class is only implemented for discrete actions spaces; you can use "
-                "QLearningMode non-discrete action spaces")
+                f"{self.__class__.__name__} class is only implemented for discrete actions spaces; "
+                "you can use Sarsa or QLearningMode for non-discrete action spaces")
         super().__init__(
             q=q, q_targ=q_targ, loss_function=loss_function, value_transform=value_transform)
         self._init_funcs()
@@ -102,17 +103,17 @@ class DoubleQLearning(BaseTD):
         def target(params, state, rng, Rn, In, S_next):
             rngs = hk.PRNGSequence(rng)
             f, f_inv = self.value_transform
-            Q_s_targ, _ = self.q_targ.apply_func_type2(params, state, next(rngs), S_next, False)
+            Q_s_targ, _ = self.q_targ.function_type2(params, state, next(rngs), S_next, False)
             assert Q_s_targ.ndim == 2
             A_targ = argmax(next(rngs), Q_s_targ, axis=1)
-            Q_sa_next, _ = self.q.apply_func_type1(params, state, next(rngs), S_next, A_targ, False)
+            Q_sa_next, _ = self.q.function_type1(params, state, next(rngs), S_next, A_targ, False)
             return f(Rn + In * f_inv(Q_sa_next))
 
         def loss_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(target_params, state, next(rngs), Rn, In, S_next)
-            Q, state_new = self.q.apply_func_type1(params, state, next(rngs), S, A, True)
+            Q, state_new = self.q.function_type1(params, state, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
             return loss, (loss, G, Q, S, A, state_new)
 
@@ -123,7 +124,7 @@ class DoubleQLearning(BaseTD):
                     params, target_params, state, next(rngs), transition_batch)
 
             # target-network estimate
-            Q_targ, _ = self.q_targ.apply_func_type1(target_params, state, next(rngs), S, A, False)
+            Q_targ, _ = self.q_targ.function_type1(target_params, state, next(rngs), S, A, False)
 
             # residuals: estimate - better_estimate
             err = Q - G
@@ -146,7 +147,7 @@ class DoubleQLearning(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(target_params, state, next(rngs), Rn, In, S_next)
-            Q, _ = self.q.apply_func_type1(params, state, next(rngs), S, A, False)
+            Q, _ = self.q.function_type1(params, state, next(rngs), S, A, False)
             return G - Q
 
         self._grads_and_metrics_func = jax.jit(grads_and_metrics_func)

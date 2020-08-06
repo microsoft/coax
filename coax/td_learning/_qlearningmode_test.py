@@ -20,43 +20,98 @@
 # ------------------------------------------------------------------------------------------------ #
 
 from copy import deepcopy
+from functools import partial
 
-from .._base.test_case import TestCase, DummyFuncApprox
+import jax
+import jax.numpy as jnp
+import haiku as hk
+
+from .._base.test_case import TestCase, DiscreteEnv
 from .._core.value_q import Q
 from .._core.policy import Policy
 from ..utils import get_transition
 from ._qlearningmode import QLearningMode
 
+env = DiscreteEnv(random_seed=13)
+
+
+def func_type1(S, A, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, env.observation_space.n)
+    if jnp.issubdtype(A.dtype, jnp.integer):
+        A = jax.nn.one_hot(A, env.action_space.n)
+
+    flatten = hk.Flatten()
+    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
+    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
+
+    seq = hk.Sequential((
+        hk.Linear(8), jax.nn.relu,
+        dropout,
+        batch_norm,
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(1), jnp.ravel,
+    ))
+    X = jnp.concatenate((flatten(S), flatten(A)), axis=-1)
+    return seq(X)
+
+
+def func_type2(S, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, env.observation_space.n)
+
+    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
+    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
+
+    seq = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        dropout,
+        batch_norm,
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(env.action_space.n),
+    ))
+    return seq(S)
+
+
+def func_pi(S, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, env.observation_space.n)
+
+    batch_norm = hk.BatchNorm(False, False, 0.99)
+    seq = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(batch_norm, is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(env.action_space.n),
+    ))
+    return {'logits': seq(S)}
+
 
 class TestQLearningMode(TestCase):
 
     def setUp(self):
-        self.func = DummyFuncApprox(self.env_discrete)
         self.transition_batch = get_transition(self.env_discrete).to_batch()
 
     def test_update_type1_discrete(self):
-        q = Q(self.func, qtype=1)
-        pi_targ = Policy(self.func)
+        q = Q(func_type1, env.observation_space, env.action_space)
+        pi_targ = Policy(func_pi, env.observation_space, env.action_space)
         q_targ = q.copy()
-        qlearning = QLearningMode(q, pi_targ, q_targ)
+        updater = QLearningMode(q, pi_targ, q_targ)
 
-        b1 = deepcopy(q.func_approx.state['body']['params'])
-        h1 = deepcopy(q.func_approx.state['head_q1']['params'])
+        params = deepcopy(q.params)
+        function_state = deepcopy(q.function_state)
 
-        # default value head is a linear layer with zero-initialized weights, so we need not one but
-        # two updates to ensure that the body (which is upstream from value head) receives a
-        # non-trivial update too
-        qlearning.update(self.transition_batch)
-        qlearning.update(self.transition_batch)
+        updater.update(self.transition_batch)
 
-        b2 = deepcopy(q.func_approx.state['body']['params'])
-        h2 = deepcopy(q.func_approx.state['head_q1']['params'])
-        self.assertPytreeNotEqual(h1, h2)
-        self.assertPytreeNotEqual(b1, b2)
+        self.assertPytreeNotEqual(params, q.params)
+        self.assertPytreeNotEqual(function_state, q.function_state)
 
     def test_update_type2_discrete(self):
-        q = Q(self.func, qtype=2)
-        pi_targ = Policy(self.func)
+        q = Q(func_type2, env.observation_space, env.action_space)
+        pi_targ = Policy(func_pi, env.observation_space, env.action_space)
         q_targ = q.copy()
 
         with self.assertRaisesRegex(TypeError, "q must be a type-1 q-function, got type-2"):

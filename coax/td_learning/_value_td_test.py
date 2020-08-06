@@ -20,67 +20,66 @@
 # ------------------------------------------------------------------------------------------------ #
 
 from copy import deepcopy
+from functools import partial
 
 import jax
 import jax.numpy as jnp
+import haiku as hk
 
-from .._base.test_case import TestCase, DummyFuncApprox
+from .._base.test_case import TestCase, DiscreteEnv
 from .._core.value_v import V
 from ..utils import get_transition
 from ._value_td import ValueTD
 
+env = DiscreteEnv(random_seed=13)
+
+
+def func(S, is_training):
+    if jnp.issubdtype(S.dtype, jnp.integer):
+        S = jax.nn.one_hot(S, env.observation_space.n)
+
+    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
+    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
+
+    seq = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        dropout,
+        batch_norm,
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(1), jnp.ravel,
+    ))
+    return seq(S)
+
 
 class TestValueTD(TestCase):
+
     def setUp(self):
-        self.func = DummyFuncApprox(self.env_discrete, learning_rate=0.91)
+
         self.transition_batch = get_transition(self.env_discrete).to_batch()
 
-    def test_grads(self):
-        v = V(self.func)
+    def test_update_type1_discrete(self):
+        v = V(func, env.observation_space)
         v_targ = v.copy()
-        value_td = ValueTD(v, v_targ)
+        updater = ValueTD(v, v_targ)
 
-        grads, state, metrics = value_td.grads_and_metrics(self.transition_batch)
-        self.assertPytreeNotEqual(grads, jax.tree_map(jnp.zeros_like, grads))
-        self.assertPytreeNotEqual(grads['head_v'], jax.tree_map(jnp.zeros_like, grads['head_v']))
+        params = deepcopy(v.params)
+        function_state = deepcopy(v.function_state)
 
-        v.params = jax.tree_multimap(lambda p, g: p - 0.91 * g, v.params, grads)
-        grads, state, metrics = value_td.grads_and_metrics(self.transition_batch)
-        self.assertPytreeNotEqual(grads, jax.tree_map(jnp.zeros_like, grads))
-        self.assertPytreeNotEqual(grads['head_v'], jax.tree_map(jnp.zeros_like, grads['head_v']))
-        self.assertPytreeNotEqual(grads['body'], jax.tree_map(jnp.zeros_like, grads['body']))
+        updater.update(self.transition_batch)
 
-    def test_update(self):
-        v = V(self.func)
+        self.assertPytreeNotEqual(params, v.params)
+        self.assertPytreeNotEqual(function_state, v.function_state)
+
+    def test_update_type2_discrete(self):
+        v = V(func, env.observation_space)
         v_targ = v.copy()
-        value_td = ValueTD(v, v_targ)
+        updater = ValueTD(v, v_targ)
 
-        b1 = deepcopy(v.func_approx.state['body']['params'])
-        h1 = deepcopy(v.func_approx.state['head_v']['params'])
-        o1 = deepcopy((
-            v.func_approx.state['action_preprocessor']['params'],
-            v.func_approx.state['state_action_combiner']['params'],
-            v.func_approx.state['head_pi']['params'],
-            v.func_approx.state['head_q1']['params'],
-            v.func_approx.state['head_q2']['params'],
-        ))
+        params = deepcopy(v.params)
+        function_state = deepcopy(v.function_state)
 
-        # default value head is a linear layer with zero-initialized weights, so we need not one but
-        # two updates to ensure that the body (which is upstream from value head) receives a
-        # non-trivial update too
-        m1 = value_td.update(self.transition_batch)
-        m2 = value_td.update(self.transition_batch)
-        print(m1)
-        print(m2)
-        b2 = v.func_approx.state['body']['params']
-        h2 = v.func_approx.state['head_v']['params']
-        o2 = (
-            v.func_approx.state['action_preprocessor']['params'],
-            v.func_approx.state['state_action_combiner']['params'],
-            v.func_approx.state['head_pi']['params'],
-            v.func_approx.state['head_q1']['params'],
-            v.func_approx.state['head_q2']['params'],
-        )
-        self.assertPytreeNotEqual(h1, h2)
-        self.assertPytreeNotEqual(b1, b2)
-        self.assertPytreeAlmostEqual(o1, o2)
+        updater.update(self.transition_batch)
+
+        self.assertPytreeNotEqual(params, v.params)
+        self.assertPytreeNotEqual(function_state, v.function_state)

@@ -19,6 +19,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import gym
 import jax
 import jax.numpy as jnp
 import haiku as hk
@@ -98,10 +99,10 @@ class ExpectedSarsa(BaseTD):
     """
     def __init__(self, q, pi_targ, q_targ=None, loss_function=None, value_transform=None):
 
-        if not q.action_space_is_discrete:
+        if not isinstance(q.action_space, gym.spaces.Discrete):
             raise NotImplementedError(
-                "QLearning class is only implemented for discrete actions spaces; you can use "
-                "QLearningMode non-discrete action spaces")
+                f"{self.__class__.__name__} class is only implemented for discrete actions spaces; "
+                "you can use Sarsa or QLearningMode for non-discrete action spaces")
         if not isinstance(pi_targ, PolicyMixin):
             raise TypeError(f"pi_targ must be a Policy, got: {type(pi_targ)}")
 
@@ -114,10 +115,9 @@ class ExpectedSarsa(BaseTD):
 
         def target(θ_targ, θ_pi, state_q, state_pi, rng, Rn, In, S_next):
             rngs = hk.PRNGSequence(rng)
-            dist_params, _ = self.pi_targ.apply_func(
-                θ_pi, state_pi, next(rngs), S_next, False, **self.pi_targ.hyperparams)
+            dist_params, _ = self.pi_targ.function(θ_pi, state_pi, next(rngs), S_next, False)
             P = jax.nn.softmax(dist_params['logits'], axis=-1)
-            Q_s_next, _ = self.q_targ.apply_func_type2(θ_targ, state_q, next(rngs), S_next, False)
+            Q_s_next, _ = self.q_targ.function_type2(θ_targ, state_q, next(rngs), S_next, False)
             assert P.ndim == 2
             assert Q_s_next.ndim == 2
             Q_sa_next = jnp.einsum('ij,ij->i', P, Q_s_next)
@@ -128,7 +128,7 @@ class ExpectedSarsa(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
-            Q, state_q_new = self.q.apply_func_type1(θ, state_q, next(rngs), S, A, True)
+            Q, state_q_new = self.q.function_type1(θ, state_q, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
             return loss, (loss, G, Q, S, A, state_q_new)
 
@@ -139,7 +139,7 @@ class ExpectedSarsa(BaseTD):
                     θ, θ_targ, θ_pi, state_q, state_pi, next(rngs), transition_batch)
 
             # target-network estimate
-            Q_targ, _ = self.q_targ.apply_func_type1(θ_targ, state_q, next(rngs), S, A, False)
+            Q_targ, _ = self.q_targ.function_type1(θ_targ, state_q, next(rngs), S, A, False)
 
             # residuals: estimate - better_estimate
             err = Q - G
@@ -162,7 +162,7 @@ class ExpectedSarsa(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
-            Q, _ = self.q.apply_func_type1(θ, state_q, next(rngs), S, A, False)
+            Q, _ = self.q.function_type1(θ, state_q, next(rngs), S, A, False)
             return G - Q
 
         self._grads_and_metrics_func = jax.jit(grads_and_metrics_func)

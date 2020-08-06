@@ -111,26 +111,12 @@ class QLearningMode(BaseTD):
 
     def _init_funcs(self):
 
-        def q_apply_func_type1(θ, state_q, rng, S, X_a, is_training):
-            """ type-1 apply_func, except skipping the action_preprocessor """
-            rngs = hk.PRNGSequence(rng)
-            body = self.q.func_approx.apply_funcs['body']
-            comb = self.q.func_approx.apply_funcs['state_action_combiner']
-            head = self.q.func_approx.apply_funcs['head_q1']
-            state_q_new = state_q.copy()
-            X_s, state_q_new['body'] = body(θ['body'], state_q['body'], next(rngs), S, is_training)
-            X_sa, state_q_new['state_action_combiner'] = comb(
-                θ['state_action_combiner'], state_q['state_action_combiner'], next(rngs),
-                X_s, X_a, is_training)
-            Q_sa, state_q_new['head_q1'] = head(
-                θ['head_q1'], state_q['head_q1'], next(rngs), X_sa, is_training)
-            return jnp.squeeze(Q_sa, axis=1), state_q_new
-
         def target(θ_targ, θ_pi, state_q, state_pi, rng, Rn, In, S_next):
             rngs = hk.PRNGSequence(rng)
-            dist_params, _ = self.pi_targ.apply_func(θ_pi, state_pi, next(rngs), S_next, False)
-            X_a_next = self.pi_targ.proba_dist.mode(dist_params)
-            Q_next, _ = q_apply_func_type1(θ_targ, state_q, next(rngs), S_next, X_a_next, False)
+            dist_params, _ = self.pi_targ.function(θ_pi, state_pi, next(rngs), S_next, False)
+            A_next = self.pi_targ.proba_dist.mode(dist_params)
+            Q_next, _ = \
+                self.q_targ.function_type1(θ_targ, state_q, next(rngs), S_next, A_next, False)
             assert Q_next.ndim == 1
             f, f_inv = self.value_transform
             return f(Rn + In * f_inv(Q_next))
@@ -139,7 +125,7 @@ class QLearningMode(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
-            Q, state_q_new = self.q.apply_func_type1(θ, state_q, next(rngs), S, A, True)
+            Q, state_q_new = self.q.function_type1(θ, state_q, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
             return loss, (loss, G, Q, S, A, state_q_new)
 
@@ -150,7 +136,7 @@ class QLearningMode(BaseTD):
                     θ, θ_targ, θ_pi, state_q, state_pi, next(rngs), transition_batch)
 
             # target-network estimate
-            Q_targ, _ = self.q_targ.apply_func_type1(θ_targ, state_q, next(rngs), S, A, False)
+            Q_targ, _ = self.q_targ.function_type1(θ_targ, state_q, next(rngs), S, A, False)
 
             # residuals: estimate - better_estimate
             err = Q - G
@@ -173,7 +159,7 @@ class QLearningMode(BaseTD):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
-            Q, _ = self.q.apply_func_type1(θ, state_q, next(rngs), S, A, False)
+            Q, _ = self.q.function_type1(θ, state_q, next(rngs), S, A, False)
             return G - Q
 
         self._grads_and_metrics_func = jax.jit(grads_and_metrics_func)
