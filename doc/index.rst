@@ -81,7 +81,6 @@ RL agent.
     coax/experience_replay
     coax/value_losses
     coax/value_transforms
-    coax/planning
 
 .. toctree::
     :caption: Utilities
