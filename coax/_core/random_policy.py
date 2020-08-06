@@ -19,6 +19,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import gym
+import jax.numpy as jnp
 import numpy as onp
 
 from ..utils import docstring
@@ -46,23 +48,48 @@ class RandomPolicy:
         Sets the random state to get reproducible results.
 
     """
-    def __init__(self, env, random_seed=None):
-        self.env = env
+    def __init__(self, action_space, random_seed=None):
+        if not isinstance(action_space, gym.Space):
+            raise TypeError()
+        self.action_space = action_space
+        self.action_space.seed(random_seed)
         self.random_seed = random_seed
-        self.env.action_space.seed(random_seed)
 
     @docstring(PolicyMixin.__call__)
     def __call__(self, s, return_logp=False):
-        if return_logp:
-            if self.action_space_is_discrete:
-                logp = -onp.log(self.num_actions)
-            elif self.action_space_is_box:
-                sizes = self.env.action_space.high - self.env.action_space.low
-                logp = -onp.sum(onp.log(sizes))  # log(prod(1/sizes))
-            else:
-                raise NotImplementedError(
-                    "the log-propensity of a 'uniform' distribution over a "
-                    f"{self.env.action_space} is not yet implemented; "
-                    "please submit a feature request")
-        a = self.env.action_space.sample()
-        return (a, logp) if return_logp else a
+        a = self.action_space.sample()
+        if not return_logp:
+            return a
+
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            logp = -onp.log(self.num_actions)
+            return a, logp
+
+        if isinstance(self.action_space, gym.spaces.Box):
+            sizes = self.action_space.high - self.action_space.low
+            logp = -onp.sum(onp.log(sizes))  # log(prod(1/sizes))
+            return a, logp
+
+        raise NotImplementedError(
+            "the log-propensity of a 'uniform' distribution over a "
+            f"{self.action_space.__class__.__name__} space is not yet implemented; "
+            "please submit a feature request")
+
+    @docstring(PolicyMixin.greedy)
+    def greedy(self, s):
+        return self(s, return_logp=False)
+
+    @docstring(PolicyMixin.dist_params)
+    def dist_params(self, s):
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            return {'logits': jnp.zeros(self.action_space.n)}
+
+        if isinstance(self.action_space, gym.spaces.Box):
+            return {
+                'mu': jnp.zeros(self.action_space.shape),
+                'logvar': 15 * jnp.ones(self.action_space.shape)}
+
+        raise NotImplementedError(
+            "the dist_params of a 'uniform' distribution over a "
+            f"{self.action_space.__class__.__name__} space is not yet implemented; "
+            "please submit a feature request")
