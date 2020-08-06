@@ -27,11 +27,12 @@ from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 from typing import Mapping
 
+import gym
 import numpy as np
 import tensorboardX
 from gym import Wrapper
 
-from .._base.mixins import SpaceUtilsMixin, LoggerMixin, SerializationMixin
+from .._base.mixins import LoggerMixin, SerializationMixin
 
 
 __all__ = (
@@ -39,7 +40,7 @@ __all__ = (
 )
 
 
-class TrainMonitor(Wrapper, SpaceUtilsMixin, LoggerMixin, SerializationMixin):
+class TrainMonitor(Wrapper, LoggerMixin, SerializationMixin):
     r"""
     Environment wrapper for monitoring the training process.
 
@@ -300,8 +301,8 @@ class TrainMonitor(Wrapper, SpaceUtilsMixin, LoggerMixin, SerializationMixin):
                 self.tensorboard.add_scalar(
                     str(name), float(metric), global_step=self.T)
             if self._ep_actions:
-                if self.action_space_is_discrete:
-                    bins = np.arange(self.num_actions + 1)
+                if isinstance(self.action_space, gym.spaces.Discrete):
+                    bins = np.arange(self.action_space.n + 1)
                 else:
                     bins = 'auto'  # see also: np.histogram_bin_edges.__doc__
                 self.tensorboard.add_histogram(

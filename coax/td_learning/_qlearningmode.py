@@ -23,7 +23,7 @@ import jax
 import jax.numpy as jnp
 import haiku as hk
 
-from .._base.mixins import PolicyMixin
+from .._core.base_policy import PolicyMixin
 from ..utils import get_grads_diagnostics
 from ._base import BaseTD
 
@@ -128,8 +128,7 @@ class QLearningMode(BaseTD):
 
         def target(θ_targ, θ_pi, state_q, state_pi, rng, Rn, In, S_next):
             rngs = hk.PRNGSequence(rng)
-            dist_params, _ = self.pi_targ.apply_func(
-                θ_pi, state_pi, next(rngs), S_next, False, **self.pi_targ.hyperparams)
+            dist_params, _ = self.pi_targ.apply_func(θ_pi, state_pi, next(rngs), S_next, False)
             X_a_next = self.pi_targ.proba_dist.mode(dist_params)
             Q_next, _ = q_apply_func_type1(θ_targ, state_q, next(rngs), S_next, X_a_next, False)
             assert Q_next.ndim == 1

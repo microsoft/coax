@@ -2,6 +2,9 @@
 Design
 ======
 
+**FIXME(krholshe): Needs to be revised after refactor that drops the FuncApprox class.**
+
+
 In this document we lay out the design decisions for the **coax** package.
 
 One of the main ways that JAX differs from keras and pytorch is that it uses a more functional-style

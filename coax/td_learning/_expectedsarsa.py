@@ -23,7 +23,7 @@ import jax
 import jax.numpy as jnp
 import haiku as hk
 
-from .._base.mixins import PolicyMixin
+from .._core.base_policy import PolicyMixin
 from ..utils import get_grads_diagnostics
 from ._base import BaseTD
 

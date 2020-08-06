@@ -22,13 +22,11 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 
-import gym
 import jax
 import numpy as onp
 import haiku as hk
 from jax.experimental import optix
 from gym.wrappers.frame_stack import LazyFrames
-from scipy.special import expit as sigmoid
 
 from .._base.mixins import RandomStateMixin
 from ..utils import single_to_batch
@@ -131,13 +129,16 @@ class BaseFunc(ABC, RandomStateMixin):
 
     @params.setter
     def params(self, new_params):
+        if jax.tree_structure(new_params) != jax.tree_structure(self._params):
+            raise TypeError("new params must have the same structure as old params")
         self._params = new_params
 
     @property
     def function(self):
-        r""" The function approximator itself, defined as a JIT-compiled pure function.
+        r"""
 
-        This function may be called directly as:
+        The function approximator itself, defined as a JIT-compiled pure function. This function may
+        be called directly as:
 
         .. code:: python
 
@@ -153,6 +154,8 @@ class BaseFunc(ABC, RandomStateMixin):
 
     @function_state.setter
     def function_state(self, new_function_state):
+        if jax.tree_structure(new_function_state) != jax.tree_structure(self._function_state):
+            raise TypeError("new function_state must have the same structure as old function_state")
         self._function_state = new_function_state
 
     @property

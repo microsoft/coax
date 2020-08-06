@@ -19,51 +19,50 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-import gym
 import numpy as onp
-import jax
-import jax.numpy as jnp
+
+from ..utils import docstring
+from .base_policy import PolicyMixin
 
 
-class SpaceUtilsMixin:
-    r""" this mixin class holds all space-dependent utils """
-    @property
-    def action_space_is_box(self):
-        return isinstance(self.env.action_space, gym.spaces.Box)
+__all__ = (
+    'RandomPolicy',
+)
 
-    @property
-    def action_space_is_discrete(self):
-        return isinstance(self.env.action_space, gym.spaces.Discrete)
 
-    @property
-    def action_shape(self):
-        assert hasattr(self, 'env') and hasattr(self.env, 'action_space')
-        if not hasattr(self, '_action_shape'):
-            action = self.env.action_space.sample()
-            self._action_shape = jax.tree_map(jnp.shape, action)
-        return self._action_shape
+class RandomPolicy:
+    r"""
 
-    @property
-    def action_shape_flat(self):
-        if not hasattr(self, '_action_shape_flat'):
-            self._action_shape_flat = int(onp.prod(self.action_shape))
-        return self._action_shape_flat
+    A simple random policy.
 
-    @property
-    def num_actions(self):
-        if not hasattr(self, '_num_actions'):
-            if not self.action_space_is_discrete:
-                raise AttributeError(
-                    "num_actions attribute is inaccessible; does the env "
-                    "have a Discrete action space?")
-            self._num_actions = self.env.action_space.n
-        return self._num_actions
+    Parameters
+    ----------
+    env : gym environment
 
-    def _postprocess_action(self, a):
-        if self.action_space_is_discrete:
-            return int(a)
-        if self.action_space_is_box:
-            lo = self.env.action_space.low
-            hi = self.env.action_space.high
-            return onp.clip(a, lo, hi)
-        return a
+        A gym-style environment.
+
+    random_seed : int, optional
+
+        Sets the random state to get reproducible results.
+
+    """
+    def __init__(self, env, random_seed=None):
+        self.env = env
+        self.random_seed = random_seed
+        self.env.action_space.seed(random_seed)
+
+    @docstring(PolicyMixin.__call__)
+    def __call__(self, s, return_logp=False):
+        if return_logp:
+            if self.action_space_is_discrete:
+                logp = -onp.log(self.num_actions)
+            elif self.action_space_is_box:
+                sizes = self.env.action_space.high - self.env.action_space.low
+                logp = -onp.sum(onp.log(sizes))  # log(prod(1/sizes))
+            else:
+                raise NotImplementedError(
+                    "the log-propensity of a 'uniform' distribution over a "
+                    f"{self.env.action_space} is not yet implemented; "
+                    "please submit a feature request")
+        a = self.env.action_space.sample()
+        return (a, logp) if return_logp else a

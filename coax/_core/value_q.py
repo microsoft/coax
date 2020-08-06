@@ -211,49 +211,8 @@ class Q(BaseFunc):
     def function_type1(self):
         r"""
 
-        JIT-compiled function responsible for the forward-pass through the underlying function
-        approximator. This function is used by the :attr:`batch_eval` and :attr:`__call__` methods.
-
-        This is the type-1 version of the apply-function, regardless of the underlying
-        :attr:`qtype`.
-
-        Parameters
-        ----------
-        params : pytree with ndarray leaves
-
-            The model parameters (weights) used by the underlying q-function.
-
-        state : pytree
-
-            The internal state of the forward-pass function. See :attr:`function_state` and
-            :func:`haiku.transform_with_state` for more details.
-
-        rng : PRNGKey
-
-            A key to seed JAX's pseudo-random number generator.
-
-        S : state observations
-
-            A batch of state observations.
-
-        A : actions
-
-            A batch of actions.
-
-        is_training : bool
-
-            A flag that indicates whether we are in training mode.
-
-        Returns
-        -------
-        Q_sa : ndarray
-
-            A batch of state-action values :math:`q(s,a)`.
-
-        state : pytree
-
-            The internal state of the forward-pass function. See :attr:`function_state` and
-            :func:`haiku.transform_with_state` for more details.
+        Same as :attr:`function`, except that it ensures a type-1 function signature, regardless of
+        the underlying :attr:`qtype`.
 
         """
         if self.qtype == 1:
@@ -274,46 +233,8 @@ class Q(BaseFunc):
     def function_type2(self):
         r"""
 
-        JIT-compiled function responsible for the forward-pass through the underlying function
-        approximator. This function is used by the :attr:`batch_eval` and :attr:`__call__` methods.
-
-        This is the type-2 version of the apply-function, regardless of the underlying
-        :attr:`qtype`.
-
-        Parameters
-        ----------
-        params : pytree with ndarray leaves
-
-            The model parameters (weights) used by the underlying q-function.
-
-        state : pytree
-
-            The internal state of the forward-pass function. See :attr:`function_state` and
-            :func:`haiku.transform_with_state` for more details.
-
-        rng : PRNGKey
-
-            A key to seed JAX's pseudo-random number generator.
-
-        S : state observations
-
-            A batch of state observations.
-
-        is_training : bool
-
-            A flag that indicates whether we are in training mode.
-
-        Returns
-        -------
-        Q_s : ndarray
-
-            A batch of vector-valued state-action values :math:`q(s,.)`, one for each discrete
-            action.
-
-        state : pytree
-
-            The internal state of the forward-pass function. See :attr:`function_state` and
-            :func:`haiku.transform_with_state` for more details.
+        Same as :attr:`function`, except that it ensures a type-2 function signature, regardless of
+        the underlying :attr:`qtype`.
 
         """
         if self.qtype == 2:

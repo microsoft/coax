@@ -28,7 +28,7 @@ import numpy as onp
 import haiku as hk
 
 from .._base.test_case import TestCase
-from ..utils import single_to_batch, safe_sample
+from ..utils import safe_sample
 from .value_q import Q
 
 

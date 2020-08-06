@@ -64,9 +64,8 @@ RL agent.
     :maxdepth: 1
     :hidden:
 
-    coax/func_approx
-    coax/policies
     coax/value_functions
+    coax/policies
     coax/proba_dists
 
 .. toctree::

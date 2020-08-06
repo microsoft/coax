@@ -22,12 +22,11 @@
 from inspect import signature
 
 import jax
-import haiku as hk
 
-from .._base.mixins import PolicyMixin
-from ..utils import docstring, single_to_batch, batch_to_single, safe_sample
+from ..utils import single_to_batch, safe_sample
 from ..proba_dists import default_proba_dist
 from .base_func import BaseFunc
+from .base_policy import PolicyMixin
 
 
 class Policy(BaseFunc, PolicyMixin):
@@ -82,61 +81,6 @@ class Policy(BaseFunc, PolicyMixin):
             action_space=action_space,
             optimizer=optimizer,
             random_seed=random_seed)
-
-        def sample_func(params, state, rng, S):
-            rngs = hk.PRNGSequence(rng)
-            dist_params, _ = self.function(params, state, next(rngs), S, False)
-            A = self.proba_dist.sample(dist_params, next(rngs))
-            logP = self.proba_dist.log_proba(dist_params, A)
-            return A, logP
-
-        def mode_func(params, state, rng, S):
-            dist_params, _ = self.function(params, state, rng, S, False)
-            A = self.proba_dist.mode(dist_params)
-            return A
-
-        self._sample_func = jax.jit(sample_func)
-        self._mode_func = jax.jit(mode_func)
-
-    @docstring(PolicyMixin.__call__)
-    def __call__(self, s, return_logp=False):
-        S = self._preprocess_state(s)
-        A, logP = self._sample_func(self.params, self.function_state, self.rng, S)
-        a = self.proba_dist.postprocess_variate(A)
-        return (a, batch_to_single(logP)) if return_logp else a
-
-    def dist_params(self, s):
-        S = self._preprocess_state(s)
-        dist_params = self.function(self.params, self.function_state, self.rng, S)
-        return batch_to_single(dist_params)
-
-    def greedy(self, s):
-        S = self._preprocess_state(s)
-        A = self._mode_func(self.params, self.function_state, self.rng, S)
-        a = self.proba_dist.postprocess_variate(A)
-        return a
-
-    @property
-    def sample_func(self):
-        r""" The function used for sampling random actions, defined as a JIT-compiled pure function.
-
-        .. code:: python
-
-            output = obj.sample_func(obj.params, obj.function_state, obj.rng, *inputs)
-
-        """
-        return self._sample_func
-
-    @property
-    def mode_func(self):
-        r""" The function used for sampling greedy actions, defined as a JIT-compiled pure function.
-
-        .. code:: python
-
-            output = obj.mode_func(obj.params, obj.function_state, obj.rng, *inputs)
-
-        """
-        return self._mode_func
 
     def _check_signature(self, func):
         if tuple(signature(func).parameters) != ('S', 'is_training'):
