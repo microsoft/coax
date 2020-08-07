@@ -101,6 +101,7 @@ class TestPolicy(TestCase):
         pi = Policy(func_discrete, boxspace, discrete, random_seed=19)
 
         a = pi(s)
+        print(a, discrete)
         self.assertTrue(discrete.contains(a))
         self.assertEqual(a, 5)
 
@@ -139,7 +140,7 @@ class TestPolicy(TestCase):
         print(pi.function_state)
         self.assertArrayAlmostEqual(
             pi.function_state['batch_norm/~/mean_ema']['average'],
-            jnp.array([[0, 0, 0, 0.33107316, 0.49009123, 0, 0, 0.5948794]]))
+            jnp.array([[0, 0, 0, 0.331075, 0.490094, 0, 0, 0.594883]]))
 
     def test_bad_input_signature(self):
         def badfunc(S, is_training, x):

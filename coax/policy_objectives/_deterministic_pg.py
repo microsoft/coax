@@ -83,32 +83,16 @@ class DeterministicPG(PolicyObjective):
 
     def _init_funcs(self):
 
-        def q_apply_func_type1(params_q, state_q, rng, S, X_a, is_training):
-            """ type-1 apply_func, except skipping the action_preprocessor """
-            rngs = hk.PRNGSequence(rng)
-            body = self.q_targ.func_approx.apply_funcs['body']
-            comb = self.q_targ.func_approx.apply_funcs['state_action_combiner']
-            head = self.q_targ.func_approx.apply_funcs['head_q1']
-            state_new = state_q.copy()  # shallow copy
-            X_s, state_new['body'] = body(
-                params_q['body'], state_q['body'], next(rngs), S, is_training)
-            X_sa, state_new['state_action_combiner'] = comb(
-                params_q['state_action_combiner'], state_q['state_action_combiner'], next(rngs),
-                X_s, X_a, is_training)
-            Q_sa, state_new['head_q1'] = head(
-                params_q['head_q1'], state_q['head_q1'], next(rngs), X_sa, is_training)
-            return jnp.squeeze(Q_sa, axis=1), state_new
-
         def objective_func(params_pi, params_q, state_pi, state_q, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S = transition_batch.S
 
             # get distribution params from function approximator
-            dist_params, state_pi_new = self.pi.apply_func(params_pi, state_pi, next(rngs), S, True)
+            dist_params, state_pi_new = self.pi.function(params_pi, state_pi, next(rngs), S, True)
 
             # compute objective: q(s, a_greedy)
-            X_a_greedy = self.pi.proba_dist.mode(dist_params)
-            objective, _ = q_apply_func_type1(params_q, state_q, next(rngs), S, X_a_greedy, True)
+            A = self.pi.proba_dist.mode(dist_params)  # greedy action
+            objective, _ = self.q_targ.function_type1(params_q, state_q, next(rngs), S, A, True)
 
             # some consistency checks
             assert objective.ndim == 1
@@ -124,7 +108,7 @@ class DeterministicPG(PolicyObjective):
 
             # add regularization term
             if self.regularizer is not None:
-                loss = loss + jnp.mean(self.regularizer.apply_func(dist_params, **reg_hparams))
+                loss = loss + jnp.mean(self.regularizer.function(dist_params, **reg_hparams))
 
             # also pass auxiliary data to avoid multiple forward passes
             return loss, (loss, loss_bare, dist_params, state_pi_new)
@@ -142,8 +126,8 @@ class DeterministicPG(PolicyObjective):
             metrics = {f'{name}/loss': loss, f'{name}/loss_bare': loss_bare}
 
             # add sampled KL-divergence of the current policy relative to the behavior policy
-            X_a = self.pi.action_preprocessor_func(params_pi, next(rngs), transition_batch.A)
-            log_pi = self.pi.proba_dist.log_proba(dist_params, X_a)
+            A = self.pi.proba_dist.preprocess_variate(transition_batch.A)
+            log_pi = self.pi.proba_dist.log_proba(dist_params, A)
             logP = transition_batch.logP  # log-propensities recorded from behavior policy
             metrics[f'{name}/kl_div_old'] = jnp.mean(jnp.exp(logP) * (logP - log_pi))
 

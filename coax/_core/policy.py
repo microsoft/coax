@@ -66,10 +66,9 @@ class Policy(BaseFunc, PolicyMixin):
 
     random_seed : int, optional
 
-        Sets the random state to get reproducible results.
+        Seed for pseudo-random number generators.
 
     """
-
     def __init__(
             self, func, observation_space, action_space,
             optimizer=None, proba_dist=None, random_seed=None):

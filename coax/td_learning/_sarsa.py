@@ -100,6 +100,8 @@ class Sarsa(BaseTD):
         def loss_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, A_next, _ = transition_batch
+            A = self.q.action_preprocessor(A)
+            A_next = self.q.action_preprocessor(A_next)
             G = target(target_params, state, next(rngs), Rn, In, S_next, A_next)
             Q, state_new = self.q.function_type1(params, state, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
@@ -134,6 +136,8 @@ class Sarsa(BaseTD):
         def td_error_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, A_next, _ = transition_batch
+            A = self.q.action_preprocessor(A)
+            A_next = self.q.action_preprocessor(A_next)
             G = target(target_params, state, next(rngs), Rn, In, S_next, A_next)
             Q, _ = self.q.function_type1(params, state, next(rngs), S, A, False)
             return G - Q

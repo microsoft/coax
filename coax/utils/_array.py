@@ -80,7 +80,7 @@ def argmax(rng, arr, axis=-1):
 
     """
     if not isinstance(arr, jnp.ndarray):
-        arr = jnp.array(arr)
+        arr = jnp.asarray(arr)
     candidates = arr == jnp.max(arr, axis=axis, keepdims=True)
     logits = (2 * candidates - 1) * 50.  # log(max_float32) == 88.72284
     logits = jnp.moveaxis(logits, axis, -1)
@@ -237,8 +237,8 @@ def clipped_logit(x, epsilon=1e-15):
         :math:`z_i\in\mathbb{R}`.
 
     """
-    if jnp.any(x < 0) or jnp.any(x > 1):
-        raise ValueError("values do not lie on the unit interval")
+    if jax.api._jit_is_disabled():
+        assert jnp.any(x > 0) and jnp.any(x < 1), "values do not lie on the unit interval"
     return jnp.log(
         jnp.maximum(epsilon, x)) - jnp.log(jnp.maximum(epsilon, 1 - x))
 

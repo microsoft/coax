@@ -127,6 +127,7 @@ class ExpectedSarsa(BaseTD):
         def loss_func(θ, θ_targ, θ_pi, state_q, state_pi, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
+            A = self.q.action_preprocessor(A)
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
             Q, state_q_new = self.q.function_type1(θ, state_q, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
@@ -161,6 +162,7 @@ class ExpectedSarsa(BaseTD):
         def td_error_func(θ, θ_targ, θ_pi, state_q, state_pi, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
+            A = self.q.action_preprocessor(A)
             G = target(θ_targ, θ_pi, state_q, state_pi, next(rngs), Rn, In, S_next)
             Q, _ = self.q.function_type1(θ, state_q, next(rngs), S, A, False)
             return G - Q

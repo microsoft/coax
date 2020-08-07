@@ -22,7 +22,6 @@
 from inspect import signature
 
 import gym
-import jax
 import jax.numpy as jnp
 
 from ..utils import single_to_batch, safe_sample
@@ -184,17 +183,17 @@ class Q(BaseFunc):
             self, func, observation_space, action_space,
             optimizer=None, action_preprocessor=None, random_seed=None):
 
+        if action_preprocessor is None:
+            self.action_preprocessor = ProbaDist(action_space).preprocess_variate
+        else:
+            self.action_preprocessor = action_preprocessor
+
         super().__init__(
             func,
             observation_space=observation_space,
             action_space=action_space,
             optimizer=optimizer,
             random_seed=random_seed)
-
-        if action_preprocessor is None:
-            self.action_preprocessor = ProbaDist(action_space).preprocess_variate
-        else:
-            self.action_preprocessor = action_preprocessor
 
     def __call__(self, s, a=None):
         r"""
@@ -242,12 +241,12 @@ class Q(BaseFunc):
             return self.function
 
         assert isinstance(self.action_space, gym.spaces.Discrete)
-        n = self.action_space.n
 
         def q1_func(q2_params, q2_state, rng, S, A, is_training):
-            A_onehot = jax.nn.one_hot(A, n)
+            assert A.ndim == 2
+            assert A.shape[1] == self.action_space.n
             Q_s, state_new = self.function(q2_params, q2_state, rng, S, is_training)
-            Q_sa = jnp.einsum('ij,ij->i', A_onehot, Q_s)
+            Q_sa = jnp.einsum('ij,ij->i', A, Q_s)
             return Q_sa, state_new
 
         return q1_func
@@ -275,6 +274,7 @@ class Q(BaseFunc):
             # A_rep = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2]  # tiled
             S_rep = jnp.repeat(S, n, axis=0)
             A_rep = jnp.tile(jnp.arange(n), S.shape[0])
+            A_rep = self.action_preprocessor(A_rep)
 
             # evaluate on replicas => output shape: (batch * num_actions, 1)
             Q_sa_rep, state_new = self.function(q1_params, q1_state, rng, S_rep, A_rep, is_training)
@@ -319,7 +319,7 @@ class Q(BaseFunc):
 
         # example inputs
         S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
-        A = single_to_batch(safe_sample(self.action_space, seed=self.random_seed))
+        A = self.action_preprocessor(safe_sample(self.action_space, seed=self.random_seed))
         is_training = True
 
         if sig == sig_type1:

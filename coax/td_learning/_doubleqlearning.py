@@ -24,7 +24,7 @@ import jax
 import jax.numpy as jnp
 import haiku as hk
 
-from ..utils import get_grads_diagnostics, argmax
+from ..utils import get_grads_diagnostics
 from ._base import BaseTD
 
 
@@ -105,13 +105,15 @@ class DoubleQLearning(BaseTD):
             f, f_inv = self.value_transform
             Q_s_targ, _ = self.q_targ.function_type2(params, state, next(rngs), S_next, False)
             assert Q_s_targ.ndim == 2
-            A_targ = argmax(next(rngs), Q_s_targ, axis=1)
+            A_targ = (Q_s_targ == Q_s_targ.max(axis=1, keepdims=True)).astype(Q_s_targ.dtype)
+            A_targ /= A_targ.sum(axis=1, keepdims=True)  # there may be ties
             Q_sa_next, _ = self.q.function_type1(params, state, next(rngs), S_next, A_targ, False)
             return f(Rn + In * f_inv(Q_sa_next))
 
         def loss_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
+            A = self.q.action_preprocessor(A)
             G = target(target_params, state, next(rngs), Rn, In, S_next)
             Q, state_new = self.q.function_type1(params, state, next(rngs), S, A, True)
             loss = self.loss_function(G, Q)
@@ -146,6 +148,7 @@ class DoubleQLearning(BaseTD):
         def td_error_func(params, target_params, state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
             S, A, _, Rn, In, S_next, _, _ = transition_batch
+            A = self.q.action_preprocessor(A)
             G = target(target_params, state, next(rngs), Rn, In, S_next)
             Q, _ = self.q.function_type1(params, state, next(rngs), S, A, False)
             return G - Q

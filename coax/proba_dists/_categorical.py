@@ -324,9 +324,10 @@ class CategoricalDist(BaseProbaDist):
         x = X[0]
         assert self.space.contains(x), \
             f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
-        return X if batch_mode else X
+        return X if batch_mode else x
 
     def preprocess_variate(self, X):
+        X = jnp.asarray(X)
         assert X.ndim <= 1, f"unexpected X.shape: {X.shape}"
         assert jnp.issubdtype(X.dtype, jnp.integer), f"expected an integer dtype, got {X.dtype}"
-        return jax.nn.one_hot(X, self.space.n)
+        return jax.nn.one_hot(X, self.space.n).reshape(-1, self.space.n)

@@ -51,8 +51,8 @@ class VanillaPG(PolicyObjective):
     """
     REQUIRES_PROPENSITIES = False
 
-    def __init__(self, pi, policy_regularizer=None):
-        super().__init__(pi, policy_regularizer)
+    def __init__(self, pi, regularizer=None):
+        super().__init__(pi, regularizer)
         self._init_funcs()
 
     def _init_funcs(self):
@@ -61,12 +61,12 @@ class VanillaPG(PolicyObjective):
             rngs = hk.PRNGSequence(rng)
 
             # get distribution params from function approximator
-            S, A, logP = transition_batch[:3]
-            dist_params, state_new = self.pi.apply_func(params, state, next(rngs), S, True)
+            S, A = transition_batch[:2]
+            dist_params, state_new = self.pi.function(params, state, next(rngs), S, True)
 
             # compute REINFORCE-style objective
-            X_a = self.pi.action_preprocessor_func(params, next(rngs), A)
-            log_pi = self.pi.proba_dist.log_proba(dist_params, X_a)
+            A_raw = self.pi.proba_dist.preprocess_variate(A)
+            log_pi = self.pi.proba_dist.log_proba(dist_params, A_raw)
             objective = Adv * log_pi
 
             # some consistency checks
@@ -85,7 +85,7 @@ class VanillaPG(PolicyObjective):
 
             # add regularization term
             if self.regularizer is not None:
-                loss = loss + jnp.mean(self.regularizer.apply_func(dist_params, **reg_hparams))
+                loss = loss + jnp.mean(self.regularizer.function(dist_params, **reg_hparams))
 
             # also pass auxiliary data to avoid multiple forward passes
             return loss, (loss, loss_bare, dist_params, log_pi, state_new)

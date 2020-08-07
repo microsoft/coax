@@ -35,17 +35,11 @@ env = DiscreteEnv(random_seed=13)
 
 
 def func(S, is_training):
-    if jnp.issubdtype(S.dtype, jnp.integer):
-        S = jax.nn.one_hot(S, env.observation_space.n)
-
-    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
-    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
-
     seq = hk.Sequential((
         hk.Flatten(),
         hk.Linear(8), jax.nn.relu,
-        dropout,
-        batch_norm,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
         hk.Linear(8), jax.nn.relu,
         hk.Linear(1), jnp.ravel,
     ))

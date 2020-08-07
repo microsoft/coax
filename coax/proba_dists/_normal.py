@@ -70,7 +70,8 @@ class NormalDist(BaseProbaDist):
 
         def mode(dist_params):
             X = dist_params['mu']
-            return X.reshape(-1, *self.space.shape)
+            X = X.reshape(-1, *self.space.shape)
+            return X
 
         def log_proba(dist_params, X):
             mu, logvar = dist_params['mu'], dist_params['logvar']
@@ -331,12 +332,17 @@ class NormalDist(BaseProbaDist):
 
     def postprocess_variate(self, X, batch_mode=False):
         X = onp.asarray(X, dtype=self.space.dtype).reshape(-1, *self.space.shape)
-        X = self.space.low + (self.space.high - self.space.low) * sigmoid(X)
+        hi = self.space.high.reshape(-1, *self.space.shape)
+        lo = self.space.low.reshape(-1, *self.space.shape)
+        X = lo + (hi - lo) * sigmoid(X)
         x = X[0]
         assert self.space.contains(x), \
             f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
         return X if batch_mode else x
 
     def preprocess_variate(self, X):
-        X = clipped_logit((X - self.space.low) / (self.space.high - self.space.low))
-        return X.reshape(-1, *self.space.shape)
+        X = X.reshape(-1, *self.space.shape)
+        hi = self.space.high.reshape(-1, *self.space.shape)
+        lo = self.space.low.reshape(-1, *self.space.shape)
+        X = clipped_logit((X - lo) / (hi - lo))
+        return X

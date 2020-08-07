@@ -259,9 +259,9 @@ class BaseProbaDist(ABC):
         -------
         x or X : clean variate
 
-            A single clean variate or a batch thereof (if :paramref:`batch_mode`=True). A variate is
-            called **clean** if it is an instance of the gym-style :attr:`space`, i.e. it satisfies
-            :code:`self.space.contains(x)`.
+            A single clean variate or a batch thereof (if ``batch_mode=True``). A variate is called
+            **clean** if it is an instance of the gym-style :attr:`space`, i.e. it satisfies
+            :code:`x in self.space`.
 
         """
         # N.B. this post-processor is essentially a no-op

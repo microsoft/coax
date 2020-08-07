@@ -587,10 +587,8 @@ class StrippedEnv:
 
     A version of an environment that both is static and respects the gym API.
 
-    This is useful for creating pickleable environments that have a
-    significantly reduced memory footprint. These may be used to construct
-    :doc:`function approximators </coax/func_approx>`, which rely on an
-    environment to instantiate an object with the correct input/output shapes.
+    This is useful for creating pickleable environments that have a significantly reduced memory
+    footprint.
 
     Parameters
     ----------
@@ -600,10 +598,9 @@ class StrippedEnv:
 
     random_seed : int, optional
 
-        The StrippedEnv creates a :class:`coax.TransitionSingle` to store
-        its information internally. In order to generate this transition,
-        we do some random sampling from the provided spaces. This
-        `random_seed` set the seed for the pseudo-random number generators.
+        The StrippedEnv creates a :class:`coax.TransitionSingle` to store its information
+        internally. In order to generate this transition, we do some random sampling from the
+        provided spaces. This `random_seed` set the seed for the pseudo-random number generators.
 
     """
     __slots__ = (
@@ -653,8 +650,7 @@ class StrippedEnv:
 
         spec : EnvSpec, optional
 
-            The environment's EnvSpec. See the :mod:`gym.envs.register` module
-            form more details.
+            The environment's EnvSpec. See the :mod:`gym.envs.register` module form more details.
 
         metadata : dict, optional
 
@@ -662,10 +658,10 @@ class StrippedEnv:
 
         random_seed : int, optional
 
-            The StrippedEnv creates a :class:`coax.TransitionSingle` to store
-            its information internally. In order to generate this transition,
-            we do some random sampling from the provided spaces. This
-            `random_seed` set the seed for the pseudo-random number generators.
+            The StrippedEnv creates a :class:`coax.TransitionSingle` to store its information
+            internally. In order to generate this transition, we do some random sampling from the
+            provided spaces. This `random_seed` set the seed for the pseudo-random number
+            generators.
 
         """
         if reward_range is None:
@@ -738,8 +734,8 @@ class StrippedEnv:
 def strip_env_recursive(obj, depth=3):
     """
 
-    Find all references to environments in an object and replace them by their
-    stripped versions (using :class:`coax.utils.StrippedEnv`):
+    Find all references to environments in an object and replace them by their stripped versions
+    (using :class:`coax.utils.StrippedEnv`):
 
     .. code::
 
@@ -749,9 +745,8 @@ def strip_env_recursive(obj, depth=3):
     ----------
     obj : FuncApprox or container object
 
-        This could be either a :class:`FuncApprox` (or subclass thereof) or
-        a container object that contains a :class:`FuncApprox` as one of its
-        attributes.
+        This could be either a :class:`FuncApprox` (or subclass thereof) or a container object that
+        contains a :class:`FuncApprox` as one of its attributes.
 
     depth : non-negative int, optional
 

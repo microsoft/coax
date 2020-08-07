@@ -41,9 +41,9 @@ Object Reference
 
 """
 
+from ._composite import ProbaDist
 from ._categorical import CategoricalDist
 from ._normal import NormalDist
-from ._composite import ProbaDist
 
 
 __all__ = (
