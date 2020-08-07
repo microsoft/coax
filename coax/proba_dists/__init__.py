@@ -34,7 +34,6 @@ Object Reference
 .. autosummary::
     :nosignatures:
 
-    coax.proba_dists.default_proba_dist
     coax.proba_dists.ProbaDist
     coax.proba_dists.CategoricalDist
     coax.proba_dists.NormalDist
@@ -42,14 +41,12 @@ Object Reference
 
 """
 
-from ._default import default_proba_dist
-from ._base import ProbaDist
 from ._categorical import CategoricalDist
 from ._normal import NormalDist
+from ._composite import ProbaDist
 
 
 __all__ = (
-    'default_proba_dist',
     'ProbaDist',
     'CategoricalDist',
     'NormalDist',

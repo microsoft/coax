@@ -25,7 +25,7 @@ import jax.random
 import jax.numpy as jnp
 import numpy as onp
 
-from ._base import ProbaDist
+from ._base import BaseProbaDist
 
 
 __all__ = (
@@ -33,7 +33,7 @@ __all__ = (
 )
 
 
-class CategoricalDist(ProbaDist):
+class CategoricalDist(BaseProbaDist):
     r"""
 
     A differentiable categorical distribution.
@@ -58,7 +58,7 @@ class CategoricalDist(ProbaDist):
     ----------
     space : gym.Space
 
-        The gym-style space over which we define the proba_dist.
+        The gym-style space that specifies the domain of the distribution.
 
     gumbel_softmax_tau : positive float, optional
 
@@ -68,7 +68,7 @@ class CategoricalDist(ProbaDist):
         differentiable variates.
 
     """
-    __slots__ = ProbaDist.__slots__ + ('_gumbel_softmax_tau',)
+    __slots__ = BaseProbaDist.__slots__ + ('_gumbel_softmax_tau',)
 
     def __init__(self, space, gumbel_softmax_tau=0.2):
         if not isinstance(space, gym.spaces.Discrete):
@@ -76,9 +76,6 @@ class CategoricalDist(ProbaDist):
 
         super().__init__(space)
         self._gumbel_softmax_tau = gumbel_softmax_tau
-        self._init_funcs()
-
-    def _init_funcs(self):
 
         def sample(dist_params, rng):
             logp = jax.nn.log_softmax(dist_params['logits'])
@@ -90,11 +87,11 @@ class CategoricalDist(ProbaDist):
             logp = jax.nn.log_softmax(dist_params['logits'])
             return jax.nn.softmax(logp / self.gumbel_softmax_tau)
 
-        def log_proba(dist_params, x):
-            logp = jax.nn.log_softmax(dist_params['logits'])
-            if jnp.issubdtype(x.dtype, jnp.integer):
-                x = jax.nn.one_hot(x, logp.shape[-1])
-            return jnp.einsum('ij,ij->i', x, logp)
+        def log_proba(dist_params, X):
+            Z = dist_params['logits']
+            assert X.ndim == 2 and X.shape[1] == self.space.n, f"unexpected X.shape: {X.shape}"
+            assert Z.ndim == 2 and Z.shape[1] == self.space.n, f"unexpected logits.shape: {Z.shape}"
+            return jnp.einsum('ij,ij->i', X, jax.nn.log_softmax(Z))
 
         def entropy(dist_params):
             logp = jax.nn.log_softmax(dist_params['logits'])
@@ -295,8 +292,8 @@ class CategoricalDist(ProbaDist):
         """
         return self._kl_divergence_func
 
-    @staticmethod
-    def default_priors(shape):
+    @property
+    def default_priors(self):
         r"""
 
         The default distribution parameters:
@@ -318,39 +315,18 @@ class CategoricalDist(ProbaDist):
             The distribution parameters that represent the default priors.
 
         """
-        return {'logits': jnp.zeros(shape=shape)}
+        return {'logits': jnp.zeros((1, self.space.n))}  # include batch axis
 
-    def postprocess_variate(self, X):
-        r"""
-
-        The post-processor specific to variates drawn from this ditribution.
-
-        This method provides the interface between differentiable, batched variates, i.e. outputs
-        of :func:`sample` and :func:`mode` and the provided gym space.
-
-        For this specific distribution, this typically means undoing the (almost) one-hot encoding
-        coming out of the Gumbel-softmax procedure, such that the cleaned output is just an integer,
-        i.e. :math:`x=\arg\max x_\text{raw}`.
-
-
-        Parameters
-        ----------
-        X : variates
-
-            A batch of variates sampled from this proba_dist. This will be converted into a single
-            variate. Note that if the batch size is greater than one, all but the first variate are
-            ignored.
-
-        Returns
-        -------
-        x : variate
-
-            A single variate that should satisfy :code:`self.space.contains(a)`.
-
-        """
+    def postprocess_variate(self, X, batch_mode=False):
         assert X.ndim == 2
         assert X.shape[1] == self.space.n
-        x = onp.argmax(X[0])
+        X = onp.argmax(X, axis=1)
+        x = X[0]
         assert self.space.contains(x), \
             f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
-        return x
+        return X if batch_mode else X
+
+    def preprocess_variate(self, X):
+        assert X.ndim <= 1, f"unexpected X.shape: {X.shape}"
+        assert jnp.issubdtype(X.dtype, jnp.integer), f"expected an integer dtype, got {X.dtype}"
+        return jax.nn.one_hot(X, self.space.n)

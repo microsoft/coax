@@ -24,7 +24,7 @@ from inspect import signature
 import jax
 
 from ..utils import single_to_batch, safe_sample
-from ..proba_dists import default_proba_dist
+from ..proba_dists import ProbaDist
 from .base_func import BaseFunc
 from .base_policy import PolicyMixin
 
@@ -74,7 +74,7 @@ class Policy(BaseFunc, PolicyMixin):
             self, func, observation_space, action_space,
             optimizer=None, proba_dist=None, random_seed=None):
 
-        self.proba_dist = default_proba_dist(action_space) if proba_dist is None else proba_dist
+        self.proba_dist = ProbaDist(action_space) if proba_dist is None else proba_dist
         super().__init__(
             func,
             observation_space=observation_space,

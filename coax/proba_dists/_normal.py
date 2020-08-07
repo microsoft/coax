@@ -26,7 +26,8 @@ import jax.numpy as jnp
 import numpy as onp
 from scipy.special import expit as sigmoid
 
-from ._base import ProbaDist
+from ._base import BaseProbaDist
+from ..utils import clipped_logit
 
 
 __all__ = (
@@ -34,7 +35,7 @@ __all__ = (
 )
 
 
-class NormalDist(ProbaDist):
+class NormalDist(BaseProbaDist):
     r"""
 
     A differentiable normal distribution.
@@ -48,36 +49,44 @@ class NormalDist(ProbaDist):
     which represent the (conditional) distribution parameters. Here, ``mu`` is the mean :math:`\mu`
     and ``logvar`` is the log-variance :math:`\log(\sigma^2)`.
 
+    Parameters
+    ----------
+    space : gym.Space
+
+        The gym-style space that specifies the domain of the distribution.
+
     """
     def __init__(self, space):
         if not isinstance(space, gym.spaces.Box):
             raise TypeError(f"{self.__class__.__name__} can only be defined over Box spaces")
 
         super().__init__(space)
-        self._init_funcs()
-
-    def _init_funcs(self):
-        log_2pi = 1.8378770664093453  # log(2π)
+        log_2pi = 1.8378770664093453  # abbreviation
 
         def sample(dist_params, rng):
             mu, logvar = dist_params['mu'], dist_params['logvar']
-            return mu + jnp.exp(logvar / 2) * jax.random.normal(rng, mu.shape)
+            X = mu + jnp.exp(logvar / 2) * jax.random.normal(rng, mu.shape)
+            return X.reshape(-1, *self.space.shape)
 
         def mode(dist_params):
-            return dist_params['mu']
+            X = dist_params['mu']
+            return X.reshape(-1, *self.space.shape)
 
-        def log_proba(dist_params, x):
+        def log_proba(dist_params, X):
             mu, logvar = dist_params['mu'], dist_params['logvar']
-            assert x.shape == mu.shape == logvar.shape
 
             # ensure that all quantities are batch-flattened
-            x = x.reshape(x.shape[0], -1)
+            X = X.reshape(X.shape[0], -1)
             mu = mu.reshape(mu.shape[0], -1)
             logvar = logvar.reshape(logvar.shape[0], -1)
 
+            assert X.shape[1] == mu.shape[1] == logvar.shape[1] == jnp.prod(self.space.shape), \
+                f"X.shape = {X.shape}, mu.shape = {mu.shape}, " + \
+                f"logvar.shape = {logvar.shape}, self.space.shape = {self.space.shape}"
+
             n = logvar.shape[-1]
             log_det_var = jnp.sum(logvar, axis=-1)  # log(det(M)) = tr(log(M))
-            quad = jnp.einsum('ij,ij->i', jnp.square(x - mu), jnp.exp(-logvar))
+            quad = jnp.einsum('ij,ij->i', jnp.square(X - mu), jnp.exp(-logvar))
             return -0.5 * (n * log_2pi + log_det_var + quad)
 
         def entropy(dist_params):
@@ -294,8 +303,8 @@ class NormalDist(ProbaDist):
         """
         return self._kl_divergence_func
 
-    @staticmethod
-    def default_priors(shape):
+    @property
+    def default_priors(self):
         r"""
 
         The default distribution parameters:
@@ -317,40 +326,17 @@ class NormalDist(ProbaDist):
             The distribution parameters that represent the default priors.
 
         """
-        return {'mu': jnp.zeros(shape=shape), 'logvar': jnp.zeros(shape=shape)}
+        shape = (1, *self.space.shape)  # include batch axis
+        return {'mu': jnp.zeros(shape), 'logvar': jnp.zeros(shape)}
 
-    def postprocess_variate(self, X):
-        r"""
-
-        The post-processor specific to variates drawn from this ditribution.
-
-        This method provides the interface between differentiable, batched variates, i.e. outputs
-        of :func:`sample` and :func:`mode` and the provided gym space.
-
-        For this specific distribution, the post-processor involves squashing to real-valued output
-        such that the output variate is properly confined to the :class:`gym.spaces.Box`, i.e.
-
-        .. math::
-
-            x\ =\ \text{low} + (\text{high} - \text{low})\times\text{sigmoid}(x_\text{raw})
-
-        Parameters
-        ----------
-        X : variates
-
-            A batch of variates sampled from this proba_dist. This will be converted into a single
-            variate. Note that if the batch size is greater than one, all but the first variate are
-            ignored.
-
-        Returns
-        -------
-        x : variate
-
-            A single variate that should satisfy :code:`self.space.contains(a)`.
-
-        """
-        x = onp.asarray(X[0], dtype=self.space.dtype).reshape(self.space.shape)
-        x = self.space.low + (self.space.high - self.space.low) * sigmoid(x)
+    def postprocess_variate(self, X, batch_mode=False):
+        X = onp.asarray(X, dtype=self.space.dtype).reshape(-1, *self.space.shape)
+        X = self.space.low + (self.space.high - self.space.low) * sigmoid(X)
+        x = X[0]
         assert self.space.contains(x), \
             f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
-        return x
+        return X if batch_mode else x
+
+    def preprocess_variate(self, X):
+        X = clipped_logit((X - self.space.low) / (self.space.high - self.space.low))
+        return X.reshape(-1, *self.space.shape)

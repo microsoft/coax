@@ -27,7 +27,7 @@ import jax
 from ..utils import batch_to_single
 
 
-class ProbaDist(ABC):
+class BaseProbaDist(ABC):
     r"""
 
     Abstract base class for probability distributions. Check out
@@ -35,7 +35,7 @@ class ProbaDist(ABC):
 
     """
     __slots__ = (
-        'space',
+        '_space',
         '_sample_func',
         '_mode_func',
         '_log_proba_func',
@@ -48,11 +48,16 @@ class ProbaDist(ABC):
     def __init__(self, space):
         if not isinstance(space, gym.Space):
             raise TypeError("space must be derived from gym.Space")
-        self.space = space
+        self._space = space
+
+    @property
+    def space(self):
+        r""" The gym-style space that specifies the domain of the distribution. """
+        return self._space
 
     @property
     def hyperparams(self):
-        r""" Hyperparameters specific to this probability distribution. """
+        r""" The distribution hyperparameters. """
         return {}
 
     @property
@@ -207,11 +212,11 @@ class ProbaDist(ABC):
         The tree structure of the distribution parameters.
 
         """
-        return jax.tree_structure(self.default_priors(shape=()))
+        return jax.tree_structure(self.default_priors)
 
-    @staticmethod
+    @property
     @abstractmethod
-    def default_priors(shape):
+    def default_priors(self):
         r"""
 
         The default distribution parameters.
@@ -231,7 +236,7 @@ class ProbaDist(ABC):
         """
         pass
 
-    def postprocess_variate(self, X):
+    def postprocess_variate(self, X, batch_mode=False):
         r"""
 
         The post-processor specific to variates drawn from this ditribution.
@@ -241,20 +246,49 @@ class ProbaDist(ABC):
 
         Parameters
         ----------
-        X : variates
+        X : raw variates
 
-            A batch of variates sampled from this proba_dist. This will be converted into a single
-            variate. Note that if the batch size is greater than one, all but the first variate are
-            ignored.
+            A batch of **raw** clean variates, i.e. same format as the outputs of :func:`sample`
+            and :func:`mode`.
+
+        batch_mode : bool, optional
+
+            Whether to return a batch or a single instance.
 
         Returns
         -------
-        x : variate
+        x or X : clean variate
 
-            A single variate that should satisfy :code:`self.space.contains(a)`.
+            A single clean variate or a batch thereof (if :paramref:`batch_mode`=True). A variate is
+            called **clean** if it is an instance of the gym-style :attr:`space`, i.e. it satisfies
+            :code:`self.space.contains(x)`.
 
         """
+        # N.B. this post-processor is essentially a no-op
         x = batch_to_single(X)
         assert self.space.contains(x), \
             f"{self.__class__.__name__}.postprocessor_variate failed for X: {X}"
-        return x
+        return X if batch_mode else x
+
+    def preprocess_variate(self, X):
+        r"""
+
+        The pre-processor to ensure that an instance of the :attr:`space` is processed into the same
+        structure as variates drawn from this ditribution, i.e. outputs of :func:`sample` and
+        :func:`mode`.
+
+        Parameters
+        ----------
+        X : clean variates
+
+            A batch of clean variates, i.e. instances of the gym-style :attr:`space`.
+
+        Returns
+        -------
+        X : raw variates
+
+            A batch of **raw** clean variates, i.e. same format as the outputs of :func:`sample`
+            and :func:`mode`.
+
+        """
+        return X
