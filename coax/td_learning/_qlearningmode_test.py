@@ -26,93 +26,134 @@ import jax
 import jax.numpy as jnp
 import haiku as hk
 
-from .._base.test_case import TestCase, DiscreteEnv
+from .._base.test_case import TestCase, DiscreteEnv, BoxEnv
 from .._core.value_q import Q
 from .._core.policy import Policy
 from ..utils import get_transition
 from ._qlearningmode import QLearningMode
 
-env = DiscreteEnv(random_seed=13)
+env_discrete = DiscreteEnv(random_seed=13)
+env_boxspace = BoxEnv(random_seed=17)
 
 
-def func_type1(S, A, is_training):
-    if jnp.issubdtype(S.dtype, jnp.integer):
-        S = jax.nn.one_hot(S, env.observation_space.n)
-    if jnp.issubdtype(A.dtype, jnp.integer):
-        A = jax.nn.one_hot(A, env.action_space.n)
-
-    flatten = hk.Flatten()
-    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
-    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
-
+def func_type1_discrete(S, A, is_training):
     seq = hk.Sequential((
         hk.Linear(8), jax.nn.relu,
-        dropout,
-        batch_norm,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
         hk.Linear(8), jax.nn.relu,
         hk.Linear(1), jnp.ravel,
     ))
-    X = jnp.concatenate((flatten(S), flatten(A)), axis=-1)
+    S = hk.Flatten()(S)
+    A_onehot = jax.nn.one_hot(A, env_discrete.action_space.n)
+    try:
+        X = jnp.concatenate((S, A_onehot), axis=-1)
+    except:
+        print(f"\n  S: {S}\n  A: {A}\n  A_onehot: {A_onehot}\n")
+        raise
+    return seq(X)
+
+
+def func_type1_boxspace(S, A, is_training):
+    seq = hk.Sequential((
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(1), jnp.ravel,
+    ))
+    S = hk.Flatten()(S)
+    A = hk.Flatten()(A)
+    try:
+        X = jnp.concatenate((S, A), axis=-1)
+    except:
+        print(f"\n  S: {S}\n  A: {A}")
+        raise
     return seq(X)
 
 
 def func_type2(S, is_training):
-    if jnp.issubdtype(S.dtype, jnp.integer):
-        S = jax.nn.one_hot(S, env.observation_space.n)
-
-    dropout = partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.)
-    batch_norm = partial(hk.BatchNorm(False, False, 0.99), is_training=is_training)
-
-    seq = hk.Sequential((
-        hk.Flatten(),
-        hk.Linear(8), jax.nn.relu,
-        dropout,
-        batch_norm,
-        hk.Linear(8), jax.nn.relu,
-        hk.Linear(env.action_space.n),
-    ))
-    return seq(S)
-
-
-def func_pi(S, is_training):
-    if jnp.issubdtype(S.dtype, jnp.integer):
-        S = jax.nn.one_hot(S, env.observation_space.n)
-
-    batch_norm = hk.BatchNorm(False, False, 0.99)
     seq = hk.Sequential((
         hk.Flatten(),
         hk.Linear(8), jax.nn.relu,
         partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
-        partial(batch_norm, is_training=is_training),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(env.action_space.n),
+        hk.Linear(env_discrete.action_space.n),
+    ))
+    return seq(S)
+
+
+def func_pi_discrete(S, is_training):
+    seq = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(env_discrete.action_space.n),
     ))
     return {'logits': seq(S)}
+
+
+def func_pi_boxspace(S, is_training):
+    mu = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(jnp.prod(env_boxspace.action_space.shape)),
+    ), name='mu')
+    logvar = hk.Sequential((
+        hk.Flatten(),
+        hk.Linear(8), jax.nn.relu,
+        partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
+        partial(hk.BatchNorm(False, False, 0.99), is_training=is_training),
+        hk.Linear(8), jax.nn.relu,
+        hk.Linear(jnp.prod(env_boxspace.action_space.shape)),
+    ), name='logvar')
+    return {'mu': mu(S), 'logvar': logvar(S)}
 
 
 class TestQLearningMode(TestCase):
 
     def setUp(self):
-        self.transition_batch = get_transition(self.env_discrete).to_batch()
+        self.transition_discrete = get_transition(self.env_discrete).to_batch()
+        self.transition_boxspace = get_transition(self.env_box).to_batch()
 
-    def test_update_type1_discrete(self):
-        q = Q(func_type1, env.observation_space, env.action_space)
-        pi_targ = Policy(func_pi, env.observation_space, env.action_space)
+    def test_update_discrete(self):
+        q = Q(func_type1_discrete, env_discrete.observation_space, env_discrete.action_space)
+        pi = Policy(func_pi_discrete, env_discrete.observation_space, env_discrete.action_space)
         q_targ = q.copy()
-        updater = QLearningMode(q, pi_targ, q_targ)
+        updater = QLearningMode(q, pi, q_targ)
 
         params = deepcopy(q.params)
         function_state = deepcopy(q.function_state)
 
-        updater.update(self.transition_batch)
+        updater.update(self.transition_discrete)
 
         self.assertPytreeNotEqual(params, q.params)
         self.assertPytreeNotEqual(function_state, q.function_state)
 
-    def test_update_type2_discrete(self):
-        q = Q(func_type2, env.observation_space, env.action_space)
-        pi_targ = Policy(func_pi, env.observation_space, env.action_space)
+    def test_update_boxspace(self):
+        q = Q(func_type1_boxspace, env_boxspace.observation_space, env_boxspace.action_space)
+        pi = Policy(func_pi_boxspace, env_boxspace.observation_space, env_boxspace.action_space)
+        q_targ = q.copy()
+        updater = QLearningMode(q, pi, q_targ)
+
+        params = deepcopy(q.params)
+        function_state = deepcopy(q.function_state)
+
+        updater.update(self.transition_boxspace)
+
+        self.assertPytreeNotEqual(params, q.params)
+        self.assertPytreeNotEqual(function_state, q.function_state)
+
+    def test_update_type2(self):
+        q = Q(func_type2, env_discrete.observation_space, env_discrete.action_space)
+        pi = Policy(func_pi_discrete, env_discrete.observation_space, env_discrete.action_space)
         q_targ = q.copy()
 
         with self.assertRaisesRegex(TypeError, "q must be a type-1 q-function, got type-2"):
-            QLearningMode(q, pi_targ, q_targ)
+            QLearningMode(q, pi, q_targ)

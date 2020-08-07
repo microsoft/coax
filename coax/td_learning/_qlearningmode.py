@@ -114,7 +114,8 @@ class QLearningMode(BaseTD):
         def target(θ_targ, θ_pi, state_q, state_pi, rng, Rn, In, S_next):
             rngs = hk.PRNGSequence(rng)
             dist_params, _ = self.pi_targ.function(θ_pi, state_pi, next(rngs), S_next, False)
-            A_next = self.pi_targ.proba_dist.mode(dist_params)
+            A_raw_next = self.pi_targ.proba_dist.mode(dist_params)  # greedy action
+            A_next = self.pi_targ.proba_dist.postprocess_variate(A_raw_next, batch_mode=True)
             Q_next, _ = \
                 self.q_targ.function_type1(θ_targ, state_q, next(rngs), S_next, A_next, False)
             assert Q_next.ndim == 1
