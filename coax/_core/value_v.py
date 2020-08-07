@@ -53,6 +53,10 @@ class V(BaseFunc):
         An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
         <jax.experimental.optix.adam>`.
 
+    random_seed : int, optional
+
+        Seed for pseudo-random number generators.
+
     Examples
     --------
     Here's an example where the observation space is a :class:`gym.spaces.Box`.

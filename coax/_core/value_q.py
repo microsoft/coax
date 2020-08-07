@@ -26,6 +26,7 @@ import jax
 import jax.numpy as jnp
 
 from ..utils import single_to_batch, safe_sample
+from ..proba_dists import ProbaDist
 from .base_func import BaseFunc
 
 
@@ -61,6 +62,20 @@ class Q(BaseFunc):
         An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
         <jax.experimental.optix.adam>`.
 
+    action_preprocessor : function, optional
+
+        Turns a single actions into a batch of actions that are compatible with the corresponding
+        probability distribution. If left unspecified, this defaults to:
+
+        .. code:: python
+
+            action_preprocessor = ProbaDist(action_space).preprocess_variate
+
+        See also :attr:`coax.proba_dists.ProbaDist.preprocess_variate`.
+
+    random_seed : int, optional
+
+        Seed for pseudo-random number generators.
 
     Examples
     --------
@@ -165,13 +180,21 @@ class Q(BaseFunc):
 
     """
 
-    def __init__(self, func, observation_space, action_space, optimizer=None, random_seed=None):
+    def __init__(
+            self, func, observation_space, action_space,
+            optimizer=None, action_preprocessor=None, random_seed=None):
+
         super().__init__(
             func,
             observation_space=observation_space,
             action_space=action_space,
             optimizer=optimizer,
             random_seed=random_seed)
+
+        if action_preprocessor is None:
+            self.action_preprocessor = ProbaDist(action_space).preprocess_variate
+        else:
+            self.action_preprocessor = action_preprocessor
 
     def __call__(self, s, a=None):
         r"""
@@ -203,7 +226,7 @@ class Q(BaseFunc):
         if a is None:
             Q, _ = self.function_type2(self.params, self.function_state, self.rng, S, False)
         else:
-            A = single_to_batch(a)
+            A = self.action_preprocessor(a)
             Q, _ = self.function_type1(self.params, self.function_state, self.rng, S, A, False)
         return Q[0]  # batch -> single
 
