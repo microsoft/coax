@@ -233,7 +233,8 @@ class ProbaDist(BaseProbaDist):
                 for k, dist in self._structure.items()}
 
         raise AssertionError(
-            f"forgot to implement postprocess_variate for space: {self.space.__class__.__name__}")
+            f"postprocess_variate not implemented for space: {self.space.__class__.__name__}; "
+            "please send us a bug report / feature request")
 
     def preprocess_variate(self, X):
         if self._structure_type == StructureType.LEAF:

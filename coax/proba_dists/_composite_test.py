@@ -248,33 +248,35 @@ class TestProbaDist(TestCase):
 
     def test_prepostprocess_variate(self):
         space = gym.spaces.Dict({
-            'foo': gym.spaces.Box(low=0, high=1, shape=(2, 7)),
-            'bar': gym.spaces.MultiDiscrete([3, 5]),
+            'box': gym.spaces.Box(low=0, high=1, shape=(2, 7)),
+            'multidiscrete': gym.spaces.MultiDiscrete([3, 5]),
         })
         dist = ProbaDist(space)
         dist_params = {
-            'foo': {
+            'box': {
                 'mu': jax.random.normal(next(self.rngs), shape=(11, 2, 7)),
                 'logvar': jax.random.normal(next(self.rngs), shape=(11, 2, 7)),
             },
-            'bar': [
+            'multidiscrete': [
                 {'logits': jax.random.normal(next(self.rngs), shape=(11, 3))},
                 {'logits': jax.random.normal(next(self.rngs), shape=(11, 5))},
             ],
         }
         X_raw = dist.sample(dist_params, next(self.rngs))
         X_clean = dist.postprocess_variate(X_raw, batch_mode=True)
+        x_clean = dist.postprocess_variate(X_raw, batch_mode=False)
         print(jax.tree_map(jnp.shape, X_raw))
         print(jax.tree_map(jnp.shape, X_clean))
         print(X_clean)
-        self.assertArrayShape(X_raw['foo'], (11, 2, 7))
-        self.assertArrayShape(X_clean['foo'], (11, 2, 7))
-        self.assertFalse(jnp.all(X_raw['foo'] > 0))
-        self.assertNotIn(X_raw['foo'][0], space['foo'])
-        self.assertTrue(jnp.all(X_clean['foo'] > 0))
-        self.assertIn(X_clean['foo'][0], space['foo'])
-        self.assertArrayShape(X_raw['bar'][0], (11, 3))
-        self.assertArrayShape(X_raw['bar'][1], (11, 5))
-        self.assertArrayShape(X_clean['bar'], (11, 2))
-        self.assertNotIn(X_raw['bar'][0], space['bar'])
-        self.assertIn(X_clean['bar'][0], space['bar'])
+        self.assertArrayShape(X_raw['box'], (11, 2, 7))
+        self.assertArrayShape(X_clean['box'], (11, 2, 7))
+        self.assertFalse(jnp.all(X_raw['box'] > 0))
+        self.assertNotIn(X_raw['box'][0], space['box'])
+        self.assertTrue(jnp.all(X_clean['box'] > 0))
+        self.assertIn(X_clean['box'][0], space['box'])
+        self.assertArrayShape(X_raw['multidiscrete'][0], (11, 3))
+        self.assertArrayShape(X_raw['multidiscrete'][1], (11, 5))
+        self.assertArrayShape(X_clean['multidiscrete'], (11, 2))
+        self.assertNotIn(X_raw['multidiscrete'][0], space['multidiscrete'])
+        self.assertIn(X_clean['multidiscrete'][0], space['multidiscrete'])
+        self.assertIn(x_clean['multidiscrete'], space['multidiscrete'])
