@@ -44,7 +44,7 @@ def func_discrete(S, is_training):
         hk.Linear(8), jax.nn.relu,
         partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
         partial(batch_norm, is_training=is_training),
-        hk.Linear(8), jax.nn.relu,
+        hk.Linear(8), jnp.tanh,
         hk.Linear(discrete.n),
     ))
     return {'logits': seq(S)}
@@ -57,7 +57,7 @@ def func_boxspace(S, is_training):
         hk.Linear(8), jax.nn.relu,
         partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
         partial(batch_norm, is_training=is_training),
-        hk.Linear(8), jax.nn.relu,
+        hk.Linear(8), jnp.tanh,
         hk.Linear(onp.prod(boxspace.shape)),
         hk.Reshape(boxspace.shape),
     ))
@@ -66,7 +66,7 @@ def func_boxspace(S, is_training):
         hk.Linear(8), jax.nn.relu,
         partial(hk.dropout, hk.next_rng_key(), 0.25 if is_training else 0.),
         partial(batch_norm, is_training=is_training),
-        hk.Linear(8), jax.nn.relu,
+        hk.Linear(8), jnp.tanh,
         hk.Linear(onp.prod(boxspace.shape)),
         hk.Reshape(boxspace.shape),
     ))
@@ -103,7 +103,7 @@ class TestPolicy(TestCase):
         a = pi(s)
         print(a, discrete)
         self.assertTrue(discrete.contains(a))
-        self.assertEqual(a, 5)
+        self.assertEqual(a, 3)
 
     def test_call_box(self):
         s = safe_sample(boxspace, seed=17)
@@ -122,7 +122,7 @@ class TestPolicy(TestCase):
 
         a = pi.greedy(s)
         self.assertTrue(discrete.contains(a))
-        self.assertEqual(a, 5)
+        self.assertEqual(a, 1)
 
     def test_greedy_box(self):
         s = safe_sample(boxspace, seed=17)
