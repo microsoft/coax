@@ -552,7 +552,7 @@ def safe_sample(space, seed=None):
     if not isinstance(space, gym.Space):
         raise TypeError("space must be derived from gym.Space")
 
-    rnd = onp.random.RandomState(seed)
+    rnd = seed if isinstance(seed, onp.random.RandomState) else onp.random.RandomState(seed)
     return _safe_sample(space, rnd)
 
 

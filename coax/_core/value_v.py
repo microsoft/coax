@@ -20,16 +20,23 @@
 # ------------------------------------------------------------------------------------------------ #
 
 from inspect import signature
+from collections import namedtuple
 
+import jax
 import jax.numpy as jnp
+import numpy as onp
+from gym.spaces import Space
 
 from ..utils import single_to_batch, safe_sample
-from .base_func import BaseFunc
+from .base_func import BaseFunc, ExampleData, Input
 
 
 __all__ = (
     'V',
 )
+
+
+Args = namedtuple('Args', ('S', 'is_training'))
 
 
 class V(BaseFunc):
@@ -47,11 +54,6 @@ class V(BaseFunc):
         The observation space of the environment. This is used to generate example input for
         initializing ``func``. This is done after Haiku-transforming it, see also
         :func:`haiku.transform_with_state`.
-
-    optimizer : optix optimizer, optional
-
-        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
-        <jax.experimental.optix.adam>`.
 
     random_seed : int, optional
 
@@ -99,12 +101,11 @@ class V(BaseFunc):
 
     """
 
-    def __init__(self, func, observation_space, optimizer=None, random_seed=None):
+    def __init__(self, func, observation_space, random_seed=None):
         super().__init__(
-            func,
+            func=func,
             observation_space=observation_space,
             action_space=None,
-            optimizer=optimizer,
             random_seed=random_seed)
 
     def __call__(self, s):
@@ -125,9 +126,27 @@ class V(BaseFunc):
             The estimated expected value associated with the input state observation ``s``.
 
         """
-        S = self._preprocess_state(s)
+        S = single_to_batch(s)
         V, _ = self.function(self.params, self.function_state, self.rng, S, False)
         return V[0]  # batch -> single
+
+    @classmethod
+    def example_data(cls, observation_space, batch_size=1, random_seed=None):
+
+        if not isinstance(observation_space, Space):
+            raise TypeError(
+                f"observation_space must be derived from gym.Space, got: {type(observation_space)}")
+
+        rnd = onp.random.RandomState(random_seed)
+
+        # input: state observations
+        S = [safe_sample(observation_space, rnd) for _ in range(batch_size)]
+        S = jax.tree_multimap(lambda *x: jnp.stack(x, axis=0), *S)
+
+        return ExampleData(
+            inputs=Input(args=Args(S=S, is_training=True), static_argnums=(1,)),
+            output=jnp.asarray(rnd.randn(batch_size)),
+        )
 
     def _check_signature(self, func):
         if tuple(signature(func).parameters) != ('S', 'is_training'):
@@ -136,24 +155,22 @@ class V(BaseFunc):
                 f"func has bad signature; expected: func(S, is_training), got: func({sig})")
 
         # example inputs
-        S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
-        is_training = True
+        return self.example_data(
+            observation_space=self.observation_space,
+            batch_size=1,
+            random_seed=self.random_seed,
+        )
 
-        example_inputs = (S, is_training)
-        static_argnums = (1,)
-
-        return example_inputs, static_argnums
-
-    def _check_output(self, example_output):
-        if not isinstance(example_output, jnp.ndarray):
-            class_name = example_output.__class__.__name__
-            raise TypeError(f"func has bad return type; expected jnp.ndarray, got {class_name}")
-
-        if not jnp.issubdtype(example_output.dtype, jnp.floating):
-            dt = example_output.dtype
+    def _check_output(self, actual, expected):
+        if not isinstance(actual, jnp.ndarray):
             raise TypeError(
-                f"func has bad return dtype; expected a subdtype of jnp.floating, got dtype={dt}")
+                f"func has bad return type; expected jnp.ndarray, got {actual.__class__.__name__}")
 
-        if example_output.ndim != 1:
-            ndim = example_output.ndim
-            raise TypeError(f"func has bad return shape; expected ndim=1, got ndim={ndim}")
+        if not jnp.issubdtype(actual.dtype, jnp.floating):
+            raise TypeError(
+                "func has bad return dtype; expected a subdtype of jnp.floating, "
+                f"got dtype={actual.dtype}")
+
+        if actual.shape != expected.shape:
+            raise TypeError(
+                f"func has bad return shape, expected: {expected.shape}, got: {actual.shape}")

@@ -25,6 +25,7 @@ from collections import namedtuple
 from contextlib import AbstractContextManager
 from resource import getrusage, RUSAGE_SELF
 from functools import partial
+from math import prod
 
 import gym
 import jax
@@ -191,13 +192,13 @@ class TestCase(unittest.TestCase):
                 jnp.tanh,
                 hk.Linear(3),
                 jnp.tanh,
-                hk.Linear(jnp.prod(self.env_boxspace.action_space.shape)),
+                hk.Linear(prod(self.env_boxspace.action_space.shape)),
                 hk.Reshape(self.env_boxspace.action_space.shape),
             ))
             logvar = hk.Sequential((
                 hk.Linear(7), batch_norm_v, jnp.tanh,
                 hk.Linear(3), jnp.tanh,
-                hk.Linear(jnp.prod(self.env_boxspace.action_space.shape)),
+                hk.Linear(prod(self.env_boxspace.action_space.shape)),
                 hk.Reshape(self.env_boxspace.action_space.shape),
             ))
             return {'mu': mu(flatten(S)), 'logvar': logvar(flatten(S))}

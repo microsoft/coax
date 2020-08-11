@@ -207,33 +207,13 @@ class BaseProbaDist(ABC):
 
     @property
     def dist_params_structure(self):
-        r"""
-
-        The tree structure of the distribution parameters.
-
-        """
+        r""" The tree structure of the distribution parameters. """
         return jax.tree_structure(self.default_priors)
 
     @property
     @abstractmethod
     def default_priors(self):
-        r"""
-
-        The default distribution parameters.
-
-        Parameters
-        ----------
-        shape : tuple of ints
-
-            The shape of the distribution parameters.
-
-        Returns
-        -------
-        dist_params_prior : pytree with ndarray leaves
-
-            The distribution parameters that represent the default priors.
-
-        """
+        r""" The default distribution parameters. """
         pass
 
     def postprocess_variate(self, X, batch_mode=False):

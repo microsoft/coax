@@ -1,4 +1,5 @@
 import os
+from math import prod
 
 import gym
 import jax
@@ -34,7 +35,7 @@ class Func(coax.FuncApprox):
             hk.Linear(8), jax.nn.relu,
             hk.Linear(8), jax.nn.relu,
             hk.Linear(8), jax.nn.relu,
-            hk.Linear(jnp.prod(env.action_space.shape)),
+            hk.Linear(prod(env.action_space.shape)),
             hk.Reshape(env.action_space.shape),
         ))
         mu = seq(S)

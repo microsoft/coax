@@ -21,28 +21,44 @@
 
 import jax
 import jax.numpy as jnp
+from jax.experimental import optix
 
 from .._base.mixins import RandomStateMixin
+from .._core.value_v import V
 from .._core.value_q import Q
 from ..value_transforms import ValueTransform
 from ..value_losses import huber
 
 
-class BaseTD(RandomStateMixin):
-    def __init__(self, q, q_targ=None, loss_function=None, value_transform=None):
+__all__ = (
+    'BaseTDLearningV',
+    'BaseTDLearningQ',
+)
 
-        if not isinstance(q, Q):
-            raise TypeError(f"q must be a coax.Q, got: {type(q)}")
-        if not isinstance(q_targ, (Q, type(None))):
-            raise TypeError(f"q_targ must be a coax.Q or None, got: {type(q_targ)}")
 
-        self.q = q
-        self.q_targ = q_targ or q
+class BaseTDLearning(RandomStateMixin):
+    def __init__(self, f, f_targ=None, optimizer=None, loss_function=None, value_transform=None):
+
+        self._f = f
+        self._f_targ = f if f_targ is None else f_targ
         self.loss_function = loss_function or huber
         if value_transform is None:
             self.value_transform = ValueTransform(lambda x: x, lambda x: x)
         else:
             self.value_transform = value_transform
+
+        # optimizer
+        self._optimizer = optix.adam(1e-3) if optimizer is None else optimizer
+        self._optimizer_state = self.optimizer.init(self._f.params)
+
+        # construct jitted param update function
+        def apply_grads_func(opt, opt_state, params, grads):
+            updates, new_opt_state = opt.update(grads, opt_state)
+            new_params = optix.apply_updates(params, updates)
+            return new_opt_state, new_params
+
+        self._apply_grads_func = jax.jit(apply_grads_func, static_argnums=0)
+        self._init_funcs()  # implemented downstream
 
     @property
     def hyperparams(self):
@@ -93,8 +109,9 @@ class BaseTD(RandomStateMixin):
             <coax.Q.function_state>` and :func:`haiku.transform_with_state` for more details.
 
         """
-        self.q.function_state = function_state
-        self.q.apply_grads(grads)
+        self._f.function_state = function_state
+        self.optimizer_state, self._f.params = \
+            self._apply_grads_func(self.optimizer, self.optimizer_state, self._f.params, grads)
 
     def grads_and_metrics(self, transition_batch):
         r"""
@@ -125,7 +142,8 @@ class BaseTD(RandomStateMixin):
 
         """
         return self.grads_and_metrics_func(
-            self.q.params, self.q_targ.params, self.q.function_state, self.q.rng, transition_batch)
+            self._f.params, self._f_targ.params, self._f.function_state, self._f.rng,
+            transition_batch)
 
     def td_error(self, transition_batch):
         r"""
@@ -146,7 +164,8 @@ class BaseTD(RandomStateMixin):
 
         """
         return self.td_error_func(
-            self.q.params, self.q_targ.params, self.q.function_state, self.q.rng, transition_batch)
+            self._f.params, self._f_targ.params, self._f.function_state, self._f.rng,
+            transition_batch)
 
     @property
     def grads_and_metrics_func(self):
@@ -238,3 +257,61 @@ class BaseTD(RandomStateMixin):
 
         """
         return self._td_error_func
+
+    @property
+    def optimizer(self):
+        return self._optimizer
+
+    @property
+    def optimizer_state(self):
+        return self._optimizer_state
+
+    @optimizer_state.setter
+    def optimizer_state(self, new_optimizer_state):
+        self._optimizer_state = new_optimizer_state
+
+
+class BaseTDLearningV(BaseTDLearning):
+    def __init__(self, v, v_targ=None, optimizer=None, loss_function=None, value_transform=None):
+        if not isinstance(v, V):
+            raise TypeError(f"v must be a coax.V, got: {type(v)}")
+        if not isinstance(v_targ, (V, type(None))):
+            raise TypeError(f"v_targ must be a coax.Q or None, got: {type(v_targ)}")
+
+        super().__init__(
+            f=v,
+            f_targ=v_targ,
+            optimizer=optimizer,
+            loss_function=loss_function,
+            value_transform=value_transform)
+
+    @property
+    def v(self):
+        return self._f
+
+    @property
+    def v_targ(self):
+        return self._f_targ
+
+
+class BaseTDLearningQ(BaseTDLearning):
+    def __init__(self, q, q_targ=None, optimizer=None, loss_function=None, value_transform=None):
+        if not isinstance(q, Q):
+            raise TypeError(f"q must be a coax.Q, got: {type(q)}")
+        if not isinstance(q_targ, (Q, type(None))):
+            raise TypeError(f"q_targ must be a coax.Q or None, got: {type(q_targ)}")
+
+        super().__init__(
+            f=q,
+            f_targ=q_targ,
+            optimizer=optimizer,
+            loss_function=loss_function,
+            value_transform=value_transform)
+
+    @property
+    def q(self):
+        return self._f
+
+    @property
+    def q_targ(self):
+        return self._f_targ

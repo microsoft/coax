@@ -224,13 +224,23 @@ class TestQ(TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             Q(badfunc, env.observation_space, env.action_space)
 
-    def test_bad_output_shape(self):
+    def test_bad_output_shape_type1(self):
         env = env_discrete
 
         def badfunc(S, A, is_training):
             Q = func_type1(S, A, is_training)
             return jnp.expand_dims(Q, axis=-1)
-        msg = r"func has bad return shape; expected ndim=1, got ndim=2"
+        msg = r"func has bad return shape, expected: \(1,\), got: \(1, 1\)"
+        with self.assertRaisesRegex(TypeError, msg):
+            Q(badfunc, env.observation_space, env.action_space)
+
+    def test_bad_output_shape_type2(self):
+        env = env_discrete
+
+        def badfunc(S, is_training):
+            Q = func_type2(S, is_training)
+            return Q[:, :2]
+        msg = r"func has bad return shape, expected: \(1, 3\), got: \(1, 2\)"
         with self.assertRaisesRegex(TypeError, msg):
             Q(badfunc, env.observation_space, env.action_space)
 

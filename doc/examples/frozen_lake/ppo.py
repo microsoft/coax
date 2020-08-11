@@ -34,7 +34,7 @@ tracer = coax.reward_tracing.NStep(n=1, gamma=0.9)
 
 
 # updaters
-value_td = coax.td_learning.ValueTD(v, v_targ)
+simple_td = coax.td_learning.SimpleTD(v, v_targ)
 ppo_clip = coax.policy_objectives.PPOClip(pi)
 
 
@@ -54,9 +54,9 @@ for ep in range(250):
         tracer.add(s, a, r, done, logp)
         while tracer:
             transition_batch = tracer.pop()
-            Adv = value_td.td_error(transition_batch)
+            Adv = simple_td.td_error(transition_batch)
             ppo_clip.update(transition_batch, Adv)
-            value_td.update(transition_batch)
+            simple_td.update(transition_batch)
 
         # sync copies
         if env.T % 20 == 0:

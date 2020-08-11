@@ -24,11 +24,12 @@ import jax.numpy as jnp
 import haiku as hk
 
 from .._core.base_policy import PolicyMixin
+from .._core.value_q import Q
 from ..utils import get_grads_diagnostics
-from ._base import BaseTD
+from ._base import BaseTDLearningQ
 
 
-class QLearningMode(BaseTD):
+class QLearningMode(BaseTDLearningQ):
     r"""
 
     An alternative to :class:`coax.td_learning.QLearning` that also works for continuous action
@@ -69,6 +70,11 @@ class QLearningMode(BaseTD):
         The q-function that is used for constructing the TD-target. If this is left unspecified, we
         set ``q_targ = q`` internally.
 
+    optimizer : optix optimizer, optional
+
+        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
+        <jax.experimental.optix.adam>`.
+
     loss_function : callable, optional
 
         The loss function that will be used to regress to the (bootstrapped) target. The loss
@@ -96,18 +102,19 @@ class QLearningMode(BaseTD):
         passing ``value_transform=(func, inverse_func)`` works just as well.
 
     """
-    def __init__(self, q, pi_targ, q_targ=None, loss_function=None, value_transform=None):
+    def __init__(
+            self, q, pi_targ, q_targ=None, optimizer=None,
+            loss_function=None, value_transform=None):
 
-        super().__init__(
-            q=q, q_targ=q_targ, loss_function=loss_function, value_transform=value_transform)
-
-        if q.qtype == 2:
-            raise TypeError("q must be a type-1 q-function, got type-2")
+        if not (isinstance(q, Q) and q.qtype == 1):
+            raise TypeError("q must be a type-1 q-function")
         if not isinstance(pi_targ, PolicyMixin):
             raise TypeError(f"pi_targ must be a Policy, got: {type(pi_targ)}")
 
         self.pi_targ = pi_targ
-        self._init_funcs()
+        super().__init__(
+            q=q, q_targ=q_targ, optimizer=optimizer,
+            loss_function=loss_function, value_transform=value_transform)
 
     def _init_funcs(self):
 

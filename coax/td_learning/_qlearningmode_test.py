@@ -21,6 +21,8 @@
 
 from copy import deepcopy
 
+from jax.experimental.optix import sgd
+
 from .._base.test_case import TestCase
 from .._core.value_q import Q
 from .._core.policy import Policy
@@ -42,7 +44,7 @@ class TestQLearningMode(TestCase):
         q = Q(func_q, env.observation_space, env.action_space)
         pi = Policy(func_pi, env.observation_space, env.action_space)
         q_targ = q.copy()
-        updater = QLearningMode(q, pi, q_targ)
+        updater = QLearningMode(q, pi, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(q.params)
         function_state = deepcopy(q.function_state)
@@ -60,7 +62,7 @@ class TestQLearningMode(TestCase):
         q = Q(func_q, env.observation_space, env.action_space)
         pi = Policy(func_pi, env.observation_space, env.action_space)
         q_targ = q.copy()
-        updater = QLearningMode(q, pi, q_targ)
+        updater = QLearningMode(q, pi, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(q.params)
         function_state = deepcopy(q.function_state)
@@ -79,5 +81,5 @@ class TestQLearningMode(TestCase):
         pi = Policy(func_pi, env.observation_space, env.action_space)
         q_targ = q.copy()
 
-        with self.assertRaisesRegex(TypeError, "q must be a type-1 q-function, got type-2"):
+        with self.assertRaisesRegex(TypeError, "q must be a type-1 q-function"):
             QLearningMode(q, pi, q_targ)

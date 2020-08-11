@@ -25,11 +25,12 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import haiku as hk
+from jax.experimental.optix import sgd
 
 from .._base.test_case import TestCase, DiscreteEnv
 from .._core.value_v import V
 from ..utils import get_transition
-from ._value_td import ValueTD
+from ._simple_td import SimpleTD
 
 env = DiscreteEnv(random_seed=13)
 
@@ -46,7 +47,7 @@ def func(S, is_training):
     return seq(S)
 
 
-class TestValueTD(TestCase):
+class TestSimpleTD(TestCase):
 
     def setUp(self):
 
@@ -55,7 +56,7 @@ class TestValueTD(TestCase):
     def test_update_type1_discrete(self):
         v = V(func, env.observation_space)
         v_targ = v.copy()
-        updater = ValueTD(v, v_targ)
+        updater = SimpleTD(v, v_targ, optimizer=sgd(1.0))
 
         params = deepcopy(v.params)
         function_state = deepcopy(v.function_state)
@@ -68,7 +69,7 @@ class TestValueTD(TestCase):
     def test_update_type2_discrete(self):
         v = V(func, env.observation_space)
         v_targ = v.copy()
-        updater = ValueTD(v, v_targ)
+        updater = SimpleTD(v, v_targ, optimizer=sgd(1.0))
 
         params = deepcopy(v.params)
         function_state = deepcopy(v.function_state)

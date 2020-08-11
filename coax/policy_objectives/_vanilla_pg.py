@@ -44,6 +44,11 @@ class VanillaPG(PolicyObjective):
 
         The parametrized policy :math:`\pi_\theta(a|s)`.
 
+    optimizer : optix optimizer, optional
+
+        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
+        <jax.experimental.optix.adam>`.
+
     regularizer : PolicyRegularizer, optional
 
         A policy regularizer, see :mod:`coax.policy_regularizers`.
@@ -51,8 +56,8 @@ class VanillaPG(PolicyObjective):
     """
     REQUIRES_PROPENSITIES = False
 
-    def __init__(self, pi, regularizer=None):
-        super().__init__(pi, regularizer)
+    def __init__(self, pi, optimizer=None, regularizer=None):
+        super().__init__(pi=pi, optimizer=optimizer, regularizer=regularizer)
         self._init_funcs()
 
     def _init_funcs(self):

@@ -19,9 +19,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-import gym.spaces
-import jax.nn
-import jax.random
+from gym.spaces import Discrete
+import jax
 import jax.numpy as jnp
 import numpy as onp
 
@@ -50,13 +49,12 @@ class CategoricalDist(BaseProbaDist):
 
     .. math::
 
-        p_k\ =\ \text{softmax}_k(z_k)
-            \ =\ \frac{\text{e}^{z_k}}{\sum_{k'}\text{e}^{z_{k'}}}
+        p_k\ =\ \text{softmax}_k(z)\ =\ \frac{\text{e}^{z_k}}{\sum_j\text{e}^{z_j}}
 
 
     Parameters
     ----------
-    space : gym.Space
+    space : gym.spaces.Discrete
 
         The gym-style space that specifies the domain of the distribution.
 
@@ -68,10 +66,10 @@ class CategoricalDist(BaseProbaDist):
         differentiable variates.
 
     """
-    __slots__ = BaseProbaDist.__slots__ + ('_gumbel_softmax_tau',)
+    __slots__ = (*BaseProbaDist.__slots__, '_gumbel_softmax_tau')
 
     def __init__(self, space, gumbel_softmax_tau=0.2):
-        if not isinstance(space, gym.spaces.Discrete):
+        if not isinstance(space, Discrete):
             raise TypeError(f"{self.__class__.__name__} can only be defined over Discrete spaces")
 
         super().__init__(space)
@@ -155,7 +153,7 @@ class CategoricalDist(BaseProbaDist):
             thereof.
 
             For example, instead of sampling :math:`x=2` from a 4-class categorical distribution,
-            Gumbel-softmax will return a vector like :math:`x=(0.05, 0.02, 0.86, 0.07)`. The latter
+            Gumbel-softmax will return a vector like :math:`x=[0.05, 0.02, 0.86, 0.07]`. The latter
             representation can be viewed as an *almost* one-hot encoded version of the former.
 
         """
@@ -294,28 +292,7 @@ class CategoricalDist(BaseProbaDist):
 
     @property
     def default_priors(self):
-        r"""
-
-        The default distribution parameters:
-
-        .. code::
-
-            {'logits': zeros(shape)}
-
-        Parameters
-        ----------
-        shape : tuple of ints
-
-            The shape of the distribution parameters.
-
-        Returns
-        -------
-        dist_params_prior : pytree with ndarray leaves
-
-            The distribution parameters that represent the default priors.
-
-        """
-        return {'logits': jnp.zeros((1, self.space.n))}  # include batch axis
+        return {'logits': jnp.zeros((1, self.space.n))}
 
     def postprocess_variate(self, X, batch_mode=False):
         assert X.ndim == 2

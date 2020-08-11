@@ -26,10 +26,10 @@ import haiku as hk
 
 from .._core.base_policy import PolicyMixin
 from ..utils import get_grads_diagnostics
-from ._base import BaseTD
+from ._base import BaseTDLearningQ
 
 
-class ExpectedSarsa(BaseTD):
+class ExpectedSarsa(BaseTDLearningQ):
     r"""
 
     TD-learning with expected-SARSA updates. The :math:`n`-step bootstrapped target is constructed
@@ -70,6 +70,11 @@ class ExpectedSarsa(BaseTD):
         The q-function that is used for constructing the TD-target. If this is left unspecified, we
         set ``q_targ = q`` internally.
 
+    optimizer : optix optimizer, optional
+
+        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
+        <jax.experimental.optix.adam>`.
+
     loss_function : callable, optional
 
         The loss function that will be used to regress to the (bootstrapped) target. The loss
@@ -97,7 +102,9 @@ class ExpectedSarsa(BaseTD):
         passing ``value_transform=(func, inverse_func)`` works just as well.
 
     """
-    def __init__(self, q, pi_targ, q_targ=None, loss_function=None, value_transform=None):
+    def __init__(
+            self, q, pi_targ, q_targ=None, optimizer=None,
+            loss_function=None, value_transform=None):
 
         if not isinstance(q.action_space, gym.spaces.Discrete):
             raise NotImplementedError(
@@ -106,10 +113,10 @@ class ExpectedSarsa(BaseTD):
         if not isinstance(pi_targ, PolicyMixin):
             raise TypeError(f"pi_targ must be a Policy, got: {type(pi_targ)}")
 
-        super().__init__(
-            q=q, q_targ=q_targ, loss_function=loss_function, value_transform=value_transform)
         self.pi_targ = pi_targ
-        self._init_funcs()
+        super().__init__(
+            q=q, q_targ=q_targ, optimizer=optimizer,
+            loss_function=loss_function, value_transform=value_transform)
 
     def _init_funcs(self):
 

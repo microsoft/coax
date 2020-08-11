@@ -19,19 +19,28 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import warnings
 from inspect import signature
+from collections import namedtuple
 
-import gym
+import jax
 import jax.numpy as jnp
+import numpy as onp
+from gym.spaces import Space, Discrete
 
 from ..utils import single_to_batch, safe_sample
 from ..proba_dists import ProbaDist
-from .base_func import BaseFunc
+from .base_func import BaseFunc, ExampleData, Input
 
 
 __all__ = (
     'Q',
 )
+
+
+QTypes = namedtuple('QTypes', ('type1', 'type2'))
+ArgsType1 = namedtuple('Args', ('S', 'A', 'is_training'))
+ArgsType2 = namedtuple('Args', ('S', 'is_training'))
 
 
 class Q(BaseFunc):
@@ -55,11 +64,6 @@ class Q(BaseFunc):
 
         The action space of the environment. This may be used to generate example input for
         initializing :attr:`params` or to validate the output structure.
-
-    optimizer : optix optimizer, optional
-
-        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
-        <jax.experimental.optix.adam>`.
 
     action_preprocessor : function, optional
 
@@ -181,18 +185,16 @@ class Q(BaseFunc):
 
     def __init__(
             self, func, observation_space, action_space,
-            optimizer=None, action_preprocessor=None, random_seed=None):
+            action_preprocessor=None, random_seed=None):
 
-        if action_preprocessor is None:
-            self.action_preprocessor = ProbaDist(action_space).preprocess_variate
-        else:
-            self.action_preprocessor = action_preprocessor
+        self.action_preprocessor = \
+            action_preprocessor if action_preprocessor is not None \
+            else ProbaDist(action_space).preprocess_variate
 
         super().__init__(
             func,
             observation_space=observation_space,
             action_space=action_space,
-            optimizer=optimizer,
             random_seed=random_seed)
 
     def __call__(self, s, a=None):
@@ -221,7 +223,7 @@ class Q(BaseFunc):
             discrete action spaces.
 
         """
-        S = self._preprocess_state(s)
+        S = single_to_batch(s)
         if a is None:
             Q, _ = self.function_type2(self.params, self.function_state, self.rng, S, False)
         else:
@@ -240,7 +242,7 @@ class Q(BaseFunc):
         if self.qtype == 1:
             return self.function
 
-        assert isinstance(self.action_space, gym.spaces.Discrete)
+        assert isinstance(self.action_space, Discrete)
 
         def q1_func(q2_params, q2_state, rng, S, A, is_training):
             assert A.ndim == 2
@@ -262,7 +264,7 @@ class Q(BaseFunc):
         if self.qtype == 2:
             return self.function
 
-        if not isinstance(self.action_space, gym.spaces.Discrete):
+        if not isinstance(self.action_space, Discrete):
             raise ValueError(
                 "input 'A' is required for type-1 q-function when action space is non-Discrete")
 
@@ -301,56 +303,85 @@ class Q(BaseFunc):
         """
         return self._qtype
 
+    @classmethod
+    def example_data(
+            cls, observation_space, action_space,
+            action_preprocessor=None, batch_size=1, random_seed=None):
+
+        if not isinstance(observation_space, Space):
+            raise TypeError(
+                f"observation_space must be derived from gym.Space, got: {type(observation_space)}")
+
+        rnd = onp.random.RandomState(random_seed)
+
+        # input: state observations
+        S = [safe_sample(observation_space, rnd) for _ in range(batch_size)]
+        S = jax.tree_multimap(lambda *x: jnp.stack(x, axis=0), *S)
+
+        # input: actions
+        A = jax.tree_multimap(
+            lambda *x: jnp.stack(x, axis=0),
+            *(safe_sample(action_space, rnd) for _ in range(batch_size)))
+        try:
+            if action_preprocessor is None:
+                action_preprocessor = ProbaDist(action_space).preprocess_variate
+            A = action_preprocessor(A)
+        except Exception as e:
+            warnings.warn(f"preprocessing failed for actions A; caught exception: {e}")
+
+        q1_data = ExampleData(
+            inputs=Input(args=ArgsType1(S=S, A=A, is_training=True), static_argnums=(2,)),
+            output=jnp.asarray(rnd.randn(batch_size)),
+        )
+        q2_data = None
+        if isinstance(action_space, Discrete):
+            q2_data = ExampleData(
+                inputs=Input(args=ArgsType2(S=S, is_training=True), static_argnums=(1,)),
+                output=jnp.asarray(rnd.randn(batch_size, action_space.n)),
+            )
+
+        return QTypes(type1=q1_data, type2=q2_data)
+
     def _check_signature(self, func):
         sig_type1 = ('S', 'A', 'is_training')
         sig_type2 = ('S', 'is_training')
-
-        discrete = isinstance(self.action_space, gym.spaces.Discrete)
         sig = tuple(signature(func).parameters)
 
         if sig not in (sig_type1, sig_type2):
             sig = ', '.join(sig)
-            alt = ' or func(S, is_training)' if discrete else ''
+            alt = ' or func(S, is_training)' if isinstance(self.action_space, Discrete) else ''
             raise TypeError(
                 f"func has bad signature; expected: func(S, A, is_training){alt}, got: func({sig})")
 
-        if sig == sig_type2 and not discrete:
+        if sig == sig_type2 and not isinstance(self.action_space, Discrete):
             raise TypeError("type-2 q-functions are only well-defined for Discrete action spaces")
 
-        # example inputs
-        S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
-        A = self.action_preprocessor(safe_sample(self.action_space, seed=self.random_seed))
-        is_training = True
+        example_data_per_qtype = self.example_data(
+            observation_space=self.observation_space,
+            action_space=self.action_space,
+            action_preprocessor=self.action_preprocessor,
+            batch_size=1,
+            random_seed=self.random_seed)
 
         if sig == sig_type1:
             self._qtype = 1
-            example_inputs = (S, A, is_training)
-            static_argnums = (2,)
+            example_data = example_data_per_qtype.type1
         else:
             self._qtype = 2
-            example_inputs = (S, is_training)
-            static_argnums = (1,)
+            example_data = example_data_per_qtype.type2
 
-        return example_inputs, static_argnums
+        return example_data
 
-    def _check_output(self, example_output):
-        if not isinstance(example_output, jnp.ndarray):
-            class_name = example_output.__class__.__name__
+    def _check_output(self, actual, expected):
+        if not isinstance(actual, jnp.ndarray):
+            class_name = actual.__class__.__name__
             raise TypeError(f"func has bad return type; expected jnp.ndarray, got {class_name}")
 
-        if not jnp.issubdtype(example_output.dtype, jnp.floating):
-            dt = example_output.dtype
+        if not jnp.issubdtype(actual.dtype, jnp.floating):
             raise TypeError(
-                f"func has bad return dtype; expected a subdtype of jnp.floating, got dtype={dt}")
+                "func has bad return dtype; expected a subdtype of jnp.floating, "
+                f"got dtype={actual.dtype}")
 
-        if self.qtype == 1 and example_output.ndim != 1:
-            ndim = example_output.ndim
-            raise TypeError(f"func has bad return shape; expected ndim=1, got ndim={ndim}")
-
-        if self.qtype == 2 and example_output.ndim != 2:
-            ndim = example_output.ndim
-            raise TypeError(f"func has bad return shape; expected ndim=2, got ndim={ndim}")
-
-        if self.qtype == 2 and example_output.shape[1] != self.action_space.n:
-            k = example_output.shape[1]
-            raise TypeError(f"func has bad return shape; expected shape=(?, 2), got shape=(?, {k})")
+        if actual.shape != expected.shape:
+            raise TypeError(
+                f"func has bad return shape, expected: {expected.shape}, got: {actual.shape}")

@@ -58,7 +58,7 @@ buffer = coax.experience_replay.SimpleReplayBuffer(capacity=256)
 kl_div = coax.policy_regularizers.KLDivRegularizer(pi, beta=0.001)
 
 # updaters
-value_td = coax.td_learning.ValueTD(v, v_targ)
+simple_td = coax.td_learning.SimpleTD(v, v_targ)
 ppo_clip = coax.policy_objectives.PPOClip(pi, regularizer=kl_div)
 
 
@@ -81,9 +81,9 @@ while env.T < 3000000:
             for _ in range(num_batches):
                 transition_batch = buffer.sample(32)
 
-                Adv = value_td.td_error(transition_batch)
+                Adv = simple_td.td_error(transition_batch)
                 metrics_pi = ppo_clip.update(transition_batch, Adv)
-                metrics_v = value_td.update(transition_batch)
+                metrics_v = simple_td.update(transition_batch)
 
                 metrics = coax.utils.merge_dicts(metrics_pi, metrics_v)
                 env.record_metrics(metrics)

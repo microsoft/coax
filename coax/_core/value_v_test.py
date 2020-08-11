@@ -102,7 +102,7 @@ class TestV(TestCase):
         def badfunc(S, is_training):
             V = func(S, is_training)
             return jnp.expand_dims(V, axis=-1)
-        msg = r"func has bad return shape; expected ndim=1, got ndim=2"
+        msg = r"func has bad return shape, expected: \(1,\), got: \(1, 1\)"
         with self.assertRaisesRegex(TypeError, msg):
             V(badfunc, self.env_discrete.observation_space, random_seed=13)
 

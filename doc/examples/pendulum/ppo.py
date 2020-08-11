@@ -54,7 +54,7 @@ policy_reg = coax.policy_regularizers.EntropyRegularizer(pi, beta=0.01)
 
 
 # updaters
-value_td = coax.td_learning.ValueTD(v)
+simple_td = coax.td_learning.SimpleTD(v)
 ppo_clip = coax.policy_objectives.PPOClip(pi, regularizer=policy_reg)
 
 
@@ -75,11 +75,11 @@ while env.T < 1000000:
         if len(buffer) >= buffer.capacity:
             for _ in range(int(4 * buffer.capacity / 32)):  # 4 passes per round
                 transition_batch = buffer.sample(batch_size=32)
-                Adv = value_td.td_error(transition_batch)
+                Adv = simple_td.td_error(transition_batch)
 
                 metrics = {}
                 metrics.update(ppo_clip.update(transition_batch, Adv))
-                metrics.update(value_td.update(transition_batch))
+                metrics.update(simple_td.update(transition_batch))
                 env.record_metrics(metrics)
 
             buffer.clear()

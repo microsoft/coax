@@ -19,11 +19,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-import gym.spaces
-import jax.nn
-import jax.random
+from math import prod
+
+import jax
 import jax.numpy as jnp
 import numpy as onp
+from gym.spaces import Box
 from scipy.special import expit as sigmoid
 
 from ._base import BaseProbaDist
@@ -51,13 +52,13 @@ class NormalDist(BaseProbaDist):
 
     Parameters
     ----------
-    space : gym.Space
+    space : gym.spaces.Box
 
         The gym-style space that specifies the domain of the distribution.
 
     """
     def __init__(self, space):
-        if not isinstance(space, gym.spaces.Box):
+        if not isinstance(space, Box):
             raise TypeError(f"{self.__class__.__name__} can only be defined over Box spaces")
 
         super().__init__(space)
@@ -81,7 +82,7 @@ class NormalDist(BaseProbaDist):
             mu = mu.reshape(mu.shape[0], -1)
             logvar = logvar.reshape(logvar.shape[0], -1)
 
-            assert X.shape[1] == mu.shape[1] == logvar.shape[1] == jnp.prod(self.space.shape), \
+            assert X.shape[1] == mu.shape[1] == logvar.shape[1] == prod(self.space.shape), \
                 f"X.shape = {X.shape}, mu.shape = {mu.shape}, " + \
                 f"logvar.shape = {logvar.shape}, self.space.shape = {self.space.shape}"
 
@@ -306,27 +307,6 @@ class NormalDist(BaseProbaDist):
 
     @property
     def default_priors(self):
-        r"""
-
-        The default distribution parameters:
-
-        .. code::
-
-            {'mu': zeros(shape), 'logvar': zeros(shape)}
-
-        Parameters
-        ----------
-        shape : tuple of ints
-
-            The shape of the distribution parameters.
-
-        Returns
-        -------
-        dist_params_prior : pytree with ndarray leaves
-
-            The distribution parameters that represent the default priors.
-
-        """
         shape = (1, *self.space.shape)  # include batch axis
         return {'mu': jnp.zeros(shape), 'logvar': jnp.zeros(shape)}
 

@@ -25,6 +25,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import haiku as hk
+from jax.experimental.optix import sgd
 
 from .._base.test_case import TestCase, DiscreteEnv
 from .._core.value_q import Q
@@ -70,7 +71,7 @@ class TestExpectedSarsa(TestCase):
         q = Q(func_type1, env.observation_space, env.action_space)
         q_targ = q.copy()
         pi_targ = BoltzmannPolicy(q_targ)
-        updater = ExpectedSarsa(q, pi_targ, q_targ)
+        updater = ExpectedSarsa(q, pi_targ, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(q.params)
         function_state = deepcopy(q.function_state)
@@ -84,7 +85,7 @@ class TestExpectedSarsa(TestCase):
         q = Q(func_type2, env.observation_space, env.action_space)
         q_targ = q.copy()
         pi_targ = BoltzmannPolicy(q_targ)
-        updater = ExpectedSarsa(q, pi_targ, q_targ)
+        updater = ExpectedSarsa(q, pi_targ, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(q.params)
         function_state = deepcopy(q.function_state)

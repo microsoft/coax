@@ -1,9 +1,13 @@
 import os
+from functools import partial
+
+import coax
 import jax
 import jax.numpy as jnp
 import gym
+import haiku as hk
+from jax.experimental import optix
 
-import coax
 
 # set some env vars
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'   # tell JAX to use CPU
@@ -18,14 +22,25 @@ env = coax.wrappers.TrainMonitor(env)
 coax.enable_logging()
 
 
-# define function approximators
-func = coax.FuncApprox(env, learning_rate=0.5)
-pi = coax.Policy(func)
-v = coax.V(func)
+@coax.value_v(env)
+def v(S, is_training):
+    v = hk.Sequential((
+        partial(hk.one_hot, num_classes=env.observation_space.n),
+        hk.Linear(1), jnp.ravel
+    ))
+    return v(S)
+
+
+@coax.policy(env)
+def pi(S, is_training):
+    logits = hk.Sequential((
+        partial(hk.one_hot, num_classes=env.observation_space.n),
+        hk.Linear(env.action_space.n),
+    ))
+    return {'logits': logits(S)}
 
 
 # create copies
-pi_old = pi.copy()  # behavior policy
 v_targ = v.copy()   # target network
 
 
@@ -34,16 +49,16 @@ tracer = coax.reward_tracing.NStep(n=1, gamma=0.9)
 
 
 # updaters
-value_td = coax.td_learning.ValueTD(v, v_targ)
-vanilla_pg = coax.policy_objectives.VanillaPG(pi)
+simple_td = coax.td_learning.SimpleTD(v, v_targ, optimizer=optix.adam(0.1))
+vanilla_pg = coax.policy_objectives.VanillaPG(pi, optimizer=optix.adam(0.01))
 
 
 # train
-for ep in range(250):
+for ep in range(500):
     s = env.reset()
 
     for t in range(env.spec.max_episode_steps):
-        a, logp = pi_old(s, return_logp=True)
+        a, logp = pi(s, return_logp=True)
         s_next, r, done, info = env.step(a)
 
         # small incentive to keep moving
@@ -54,14 +69,13 @@ for ep in range(250):
         tracer.add(s, a, r, done, logp)
         while tracer:
             transition_batch = tracer.pop()
-            Adv = value_td.td_error(transition_batch)
+            Adv = simple_td.td_error(transition_batch)
             vanilla_pg.update(transition_batch, Adv)
-            value_td.update(transition_batch)
+            simple_td.update(transition_batch)
 
         # sync copies
         if env.T % 20 == 0:
             v_targ.soft_update(v, tau=0.5)
-            pi_old.soft_update(pi, tau=0.5)
 
         if done:
             break

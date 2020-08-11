@@ -39,9 +39,9 @@ class TestDeterministicPG(TestCase):
         transitions = self.transitions_discrete
         print(transitions)
 
-        pi = Policy(func, env.observation_space, env.action_space, optimizer=sgd(1.0))
+        pi = Policy(func, env.observation_space, env.action_space)
         q_targ = Q(self.func_q_type1, env.observation_space, env.action_space)
-        updater = DeterministicPG(pi, q_targ)
+        updater = DeterministicPG(pi, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(pi.params)
         function_state = deepcopy(pi.function_state)
@@ -60,9 +60,9 @@ class TestDeterministicPG(TestCase):
         transitions = self.transitions_boxspace
         print(transitions)
 
-        pi = Policy(func, env.observation_space, env.action_space, optimizer=sgd(1.0))
+        pi = Policy(func, env.observation_space, env.action_space)
         q_targ = Q(self.func_q_type1, env.observation_space, env.action_space)
-        updater = DeterministicPG(pi, q_targ)
+        updater = DeterministicPG(pi, q_targ, optimizer=sgd(1.0))
 
         params = deepcopy(pi.params)
         function_state = deepcopy(pi.function_state)

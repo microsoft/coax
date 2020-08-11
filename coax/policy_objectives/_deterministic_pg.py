@@ -67,6 +67,11 @@ class DeterministicPG(PolicyObjective):
 
         The target state-action value function :math:`q_\text{targ}(s,a)`.
 
+    optimizer : optix optimizer, optional
+
+        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
+        <jax.experimental.optix.adam>`.
+
     regularizer : PolicyRegularizer, optional
 
         A policy regularizer, see :mod:`coax.policy_regularizers`.
@@ -74,11 +79,11 @@ class DeterministicPG(PolicyObjective):
     """
     REQUIRES_PROPENSITIES = False
 
-    def __init__(self, pi, q_targ, regularizer=None):
+    def __init__(self, pi, q_targ, optimizer=None, regularizer=None):
         if not (isinstance(q_targ, Q) and q_targ.qtype == 1):
             raise TypeError(f"q must be a type-1 q-function, got: {type(q_targ)}")
         self.q_targ = q_targ
-        super().__init__(pi, regularizer)
+        super().__init__(pi=pi, optimizer=optimizer, regularizer=regularizer)
         self._init_funcs()
 
     def _init_funcs(self):

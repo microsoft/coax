@@ -23,6 +23,7 @@ import warnings
 
 import jax
 import jax.numpy as jnp
+from jax.experimental import optix
 
 from .._core.policy import Policy
 from ..policy_regularizers import PolicyRegularizer
@@ -47,19 +48,50 @@ class PolicyObjective:
     """
     REQUIRES_PROPENSITIES = None
 
-    def __init__(self, pi, regularizer):
+    def __init__(self, pi, optimizer, regularizer):
         if not isinstance(pi, Policy):
             raise TypeError(f"pi must be a Policy, got: {type(pi)}")
         if not isinstance(regularizer, (PolicyRegularizer, type(None))):
-            raise TypeError(
-                "regularizer must be a PolicyRegularizer, "
-                f"got: {type(regularizer)}")
-        self.pi = pi
-        self.regularizer = regularizer
+            raise TypeError(f"regularizer must be a PolicyRegularizer, got: {type(regularizer)}")
+
+        self._pi = pi
+        self._regularizer = regularizer
+
+        # optimizer
+        self._optimizer = optix.adam(1e-3) if optimizer is None else optimizer
+        self._optimizer_state = self.optimizer.init(self._pi.params)
+
+        # construct jitted param update function
+        def apply_grads_func(opt, opt_state, params, grads):
+            updates, new_opt_state = opt.update(grads, opt_state)
+            new_params = optix.apply_updates(params, updates)
+            return new_opt_state, new_params
+
+        self._apply_grads_func = jax.jit(apply_grads_func, static_argnums=0)
+        self._init_funcs()  # implemented downstream
+
+    @property
+    def pi(self):
+        return self._pi
+
+    @property
+    def regularizer(self):
+        return self._regularizer
+
+    @property
+    def optimizer(self):
+        return self._optimizer
+
+    @property
+    def optimizer_state(self):
+        return self._optimizer_state
+
+    @optimizer_state.setter
+    def optimizer_state(self, new_optimizer_state):
+        self._optimizer_state = new_optimizer_state
 
     @property
     def hyperparams(self):
-        r""" Hyperparameters specific to this policy objective. """
         return getattr(self.regularizer, 'hyperparams', {})
 
     def update(self, transition_batch, Adv):
@@ -111,8 +143,9 @@ class PolicyObjective:
             <coax.Policy.function_state>` and :func:`haiku.transform_with_state` for more details.
 
         """
-        self.pi.function_state = function_state
-        self.pi.apply_grads(grads)
+        self._pi.function_state = function_state
+        self.optimizer_state, self._pi.params = \
+            self._apply_grads_func(self.optimizer, self.optimizer_state, self._pi.params, grads)
 
     def grads_and_metrics(self, transition_batch, Adv):
         r"""
@@ -153,7 +186,7 @@ class PolicyObjective:
                 "a, logp = pi(s, return_logp=True) and then add logp to your reward tracer, "
                 "e.g. nstep_tracer.add(s, a, r, done, logp)")
         return self.grad_and_metrics_func(
-            self.pi.params, self.pi.function_state, self.pi.rng, transition_batch, Adv,
+            self._pi.params, self._pi.function_state, self._pi.rng, transition_batch, Adv,
             **self.hyperparams)
 
     @property

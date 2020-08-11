@@ -13,86 +13,99 @@ respectively.
 Parametrized policies
 ---------------------
 
-Let's start with the policy-gradient style function approximator
-:math:`\pi_\theta(a|s)`. This is implemented by :class:`coax.Policy`, which
-uses a :class:`coax.FuncApprox` object, from which it uses the :attr:`body
-<coax.FuncApprox.body>` and :attr:`head_pi <coax.FuncApprox.head_pi>` methods
-for its forward-pass. The parametrization of the function approximator is
-specified through :class:`coax.FuncApprox`, e.g.
+Let's start with the policy-gradient style function approximator :math:`\pi_\theta(a|s)`, which is
+implemented by :class:`coax.Policy`.
+
+
+Let's suppose we wish to construct a policy function approximator to build an agent that solve
+the *Pendulum* environment. We'll start by creating some example data:
 
 .. code:: python
 
-    import gym
-    import jax
-    import haiku as hk
+    env = gym.make('Pendulum-v0')
+    data = coax.example_data.policy_data(env.observation_space, env.action_space)
 
-    class MyFunc(coax.FuncApprox):
-        """ simple MLP with 2 hidden layers """
-        def body(self, S):
-            seq = hk.Sequential([
-                hk.Linear(24), jax.nn.relu,
-                hk.Linear(16), jax.nn.relu,
-            ])
-            return seq(S)
+    print(data)
+    # ExampleData(input=Inputs(S=DeviceArray([[0.2517, 1.3511 , 0.0255]], dtype=float32),
+    #                          is_training=True),
+    #             output={'mu': DeviceArray([[1.7124]], dtype=float32),
+    #                     'logvar': DeviceArray([[-0.8897]], dtype=float32)})
 
-    env = gym.make(...)
-    func = MyFunc(env)
-    pi = coax.Policy(func)
+Now, our task is to come up with a Haiku-style function that generates this output given the
+input. To be clear, our task is not to recreate the exact values; the example data is only there
+to give you an idea of the structure (shapes, dtypes, etc.).
 
-    s = env.reset()
-    for t in range(env.spec.max_episode_steps):
-        a = pi(s)
-        s_next, r, done, info = env.step(a)
+Here's an example of how to create a valid policy function approximator for the Pendulum
+environment:
 
-        # update policy
-        ...
+.. code:: python
 
-        if done:
-            break
+    @coax.policy(env)
+    def pi(S, is_training):
+        shared = hk.Sequential((
+            hk.Flatten(),
+            hk.Linear(8), jax.nn.relu,
+            hk.Linear(8), jax.nn.relu,
+        ))
+        mu = hk.Sequential((
+            shared,
+            hk.Linear(8), jax.nn.relu,
+            hk.Linear(jnp.prod(env.action_space.shape)),
+            hk.Reshape(env.action_space.shape),
+        ))
+        logvar = hk.Sequential((
+            shared,
+            hk.Linear(8), jax.nn.relu,
+            hk.Linear(jnp.prod(env.action_space.shape)),
+            hk.Reshape(env.action_space.shape),
+        ))
+        return {'mu': mu(S), 'logvar': logvar(S)}
 
-        s = s_nest
+    s = env.observation_space.sample()
+    a = pi(s)
+
+    print(a)
+    # array([0.39267802], dtype=float32)
+
+Here's an alternative way of defining ``pi`` that doesn't use a decorator:
+
+.. code:: python
+
+    def func(S, is_training):
+        mu = hk.Sequential((
+            ...
+        ))
+        logvar = hk.Sequential((
+            ...
+        ))
+        return {'mu': mu(S), 'logvar': logvar(S)}
+
+    pi = coax.Policy(func, env.observation_space, env.action_space)
+
+If something goes wrong and you'd like to inspect what's going on, here's an example of you might
+proceed:
+
+.. code:: python
+
+    rngs = hk.PRNGSequence(42)
+    func = hk.transform_with_state(func)
+    params, function_state = func.init(next(rngs), *data.input)
+    output, function_state = func.apply(params, function_state, next(rngs), *data.input)
+
+The code above is what the :attr:`coax.Policy.__init__` runs under the hood.
 
 
 Value-based policies
 --------------------
 
-Value-based policies are defined indirectly, via a q-function. Examples of
+Value-based policies are defined indirectly, via a :doc:`q-function <value_functions>`. Examples of
 value-based policies are :class:`coax.EpsilonGreedy` (see example below) and
 :class:`coax.BoltzmannPolicy`.
 
-
 .. code:: python
 
-    import gym
-    import jax
-    import haiku as hk
-
-    class MyFunc(coax.FuncApprox):
-        """ simple MLP with 2 hidden layers """
-        def body(self, S):
-            seq = hk.Sequential([
-                hk.Linear(24), jax.nn.relu,
-                hk.Linear(16), jax.nn.relu,
-            ])
-            return seq(S)
-
-    env = gym.make(...)
-    func = MyFunc(env)
-    q = coax.Q(func)
-    pi = coax.EpsilonGreedy(func, epsilon=0.1)
-
-    s = env.reset()
-    for t in range(env.spec.max_episode_steps):
-        a = pi(s)
-        s_next, r, done, info = env.step(a)
-
-        # update q-function
-        ...
-
-        if done:
-            break
-
-        s = s_nest
+    pi = coax.EpsilonGreedy(q, epsilon=0.1)
+    pi = coax.BoltzmannPolicy(q, temperature=0.02)
 
 
 Random policy

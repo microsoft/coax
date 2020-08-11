@@ -45,7 +45,7 @@ tracer = coax.reward_tracing.NStep(n=1, gamma=0.9)
 
 # updaters
 vanilla_pg = coax.policy_objectives.VanillaPG(pi)
-value_td = coax.td_learning.ValueTD(v)
+simple_td = coax.td_learning.SimpleTD(v)
 
 
 # train
@@ -61,11 +61,11 @@ for ep in range(1000):
         tracer.add(s, a, r, done)
         while tracer:
             transition_batch = tracer.pop()
-            Adv = value_td.td_error(transition_batch)
+            Adv = simple_td.td_error(transition_batch)
 
             metrics = {}
             metrics.update(vanilla_pg.update(transition_batch, Adv))
-            metrics.update(value_td.update(transition_batch))
+            metrics.update(simple_td.update(transition_batch))
             env.record_metrics(metrics)
 
         if done:

@@ -19,14 +19,22 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
+import warnings
 from inspect import signature
+from collections import namedtuple
 
 import jax
+import jax.numpy as jnp
+import numpy as onp
+from gym.spaces import Space
 
-from ..utils import single_to_batch, safe_sample
+from ..utils import safe_sample
 from ..proba_dists import ProbaDist
-from .base_func import BaseFunc
+from .base_func import BaseFunc, ExampleData, Input
 from .base_policy import PolicyMixin
+
+
+Args = namedtuple('Args', ('S', 'is_training'))
 
 
 class Policy(BaseFunc, PolicyMixin):
@@ -51,35 +59,57 @@ class Policy(BaseFunc, PolicyMixin):
         The action space of the environment. This may be used to generate example input for
         initializing :attr:`params` or to validate the output structure.
 
-    optimizer : optix optimizer, optional
-
-        An optix-style optimizer. The default optimizer is :func:`optix.adam(1e-3)
-        <jax.experimental.optix.adam>`.
-
     proba_dist : ProbaDist, optional
 
         A probability distribution that is used to interpret the output of :paramref:`func
         <coax.Policy.func>`. Check out the :mod:`coax.proba_dists` module for available options.
 
-        If left unspecified, we try to get the default proba_dist
-        :func:`coax.proba_dists.default_proba_dist` helper function.
+        If left unspecified, this defaults to:
+
+        .. code:: python
+
+            proba_dist = coax.proba_dists.ProbaDist(action_space)
 
     random_seed : int, optional
 
         Seed for pseudo-random number generators.
 
     """
-    def __init__(
-            self, func, observation_space, action_space,
-            optimizer=None, proba_dist=None, random_seed=None):
-
+    def __init__(self, func, observation_space, action_space, proba_dist=None, random_seed=None):
         self.proba_dist = ProbaDist(action_space) if proba_dist is None else proba_dist
         super().__init__(
-            func,
+            func=func,
             observation_space=observation_space,
             action_space=action_space,
-            optimizer=optimizer,
             random_seed=random_seed)
+
+    @classmethod
+    def example_data(
+            cls, observation_space, action_space, proba_dist=None, batch_size=1, random_seed=None):
+
+        if not isinstance(observation_space, Space):
+            raise TypeError(
+                f"observation_space must be derived from gym.Space, got: {type(observation_space)}")
+        if not isinstance(action_space, Space):
+            raise TypeError(
+                f"action_space must be derived from gym.Space, got: {type(action_space)}")
+
+        rnd = onp.random.RandomState(random_seed)
+
+        # input: state observations
+        S = [safe_sample(observation_space, rnd) for _ in range(batch_size)]
+        S = jax.tree_multimap(lambda *x: jnp.stack(x, axis=0), *S)
+
+        # output
+        if proba_dist is None:
+            proba_dist = ProbaDist(action_space)
+        dist_params = jax.tree_map(
+            lambda x: jnp.asarray(rnd.randn(batch_size, *x.shape[1:])), proba_dist.default_priors)
+
+        return ExampleData(
+            inputs=Input(args=Args(S=S, is_training=True), static_argnums=(1,)),
+            output=dist_params,
+        )
 
     def _check_signature(self, func):
         if tuple(signature(func).parameters) != ('S', 'is_training'):
@@ -87,18 +117,32 @@ class Policy(BaseFunc, PolicyMixin):
             raise TypeError(
                 f"func has bad signature; expected: func(S, is_training), got: func({sig})")
 
-        # example inputs
-        S = single_to_batch(safe_sample(self.observation_space, seed=self.random_seed))
-        is_training = True
+        return self.example_data(
+            observation_space=self.observation_space,
+            action_space=self.action_space,
+            proba_dist=self.proba_dist,
+            batch_size=1,
+            random_seed=self.random_seed,
+        )
 
-        example_inputs = (S, is_training)
-        static_argnums = (1,)
+    def _check_output(self, actual, expected):
+        expected_leaves, expected_structure = jax.tree_flatten(expected)
+        actual_leaves, actual_structure = jax.tree_flatten(actual)
+        assert all(isinstance(x, jnp.ndarray) for x in expected_leaves), "bad example_data"
 
-        return example_inputs, static_argnums
-
-    def _check_output(self, example_output):
-        if jax.tree_structure(example_output) != self.proba_dist.dist_params_structure:
+        if actual_structure != expected_structure:
             raise TypeError(
-                f"func has bad return tree_structure; "
-                f"expected: {jax.tree_structure(example_output)}, "
-                f"got: {self.proba_dist.dist_params_structure}")
+                f"func has bad return tree_structure, expected: {expected_structure}, "
+                f"got: {actual_structure}")
+
+        if not all(isinstance(x, jnp.ndarray) for x in actual_leaves):
+            bad_types = tuple(type(x) for x in actual_leaves if not isinstance(x, jnp.ndarray))
+            raise TypeError(
+                "all leaves of dist_params must be of type: jax.numpy.ndarray, "
+                f"found leaves of type: {bad_types}")
+
+        if not all(a.shape == b.shape for a, b in zip(actual_leaves, expected_leaves)):
+            shapes_tree = jax.tree_multimap(
+                lambda a, b: f"{a.shape} {'!=' if a.shape != b.shape else '=='} {b.shape}",
+                actual, expected)
+            raise TypeError(f"found leaves with unexpected shapes: {shapes_tree}")
