@@ -65,15 +65,27 @@ There are *three ways* to install JAX. If you're not sure which one to pick, jus
 Install coax
 ------------
 
-Install using pip:
 
-.. code:: bash
+.. tabs::
 
-    $ pip install coax
+    .. tab:: Option 1: pip
 
-or install from a fresh clone:
+        Install using pip:
 
-.. code:: bash
+        .. code:: bash
 
-    $ git clone https://github.com/microsoft/coax.git
-    $ pip install -e ./coax
+            $ pip install -U coax
+
+        This is the preferred option in most cases.
+
+
+    .. tab:: Option 2: git clone
+
+        Install from a fresh clone:
+
+        .. code:: bash
+
+            $ git clone https://github.com/microsoft/coax.git
+            $ pip install -e ./coax
+
+        This option is useful if you plan to contribute to the development of **coax**.
