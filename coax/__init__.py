@@ -32,6 +32,7 @@ from .utils import enable_logging, render_episode
 
 # pre-load submodules
 from . import experience_replay
+from . import decorators
 from . import td_learning
 from . import policy_objectives
 from . import policy_regularizers
@@ -56,6 +57,7 @@ __all__ = (
 
     # modules
     'experience_replay',
+    'decorators',
     'td_learning',
     'policy_objectives',
     'policy_regularizers',

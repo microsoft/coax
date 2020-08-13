@@ -39,9 +39,9 @@ class RandomPolicy:
 
     Parameters
     ----------
-    env : gym environment
+    action_space : gym.Space
 
-        A gym-style environment.
+        The action space to sample from.
 
     random_seed : int, optional
 

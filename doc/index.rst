@@ -86,6 +86,7 @@ RL agent.
     :maxdepth: 1
     :hidden:
 
+    coax/decorators
     coax/wrappers
     coax/utils
     coax/envs
@@ -96,7 +97,6 @@ RL agent.
     :hidden:
 
     Blog Post <blogpost>
-    design
     genindex
     release_notes
 

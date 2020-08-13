@@ -19,7 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-import warnings
 from inspect import signature
 from collections import namedtuple
 
@@ -30,7 +29,7 @@ from gym.spaces import Space
 
 from ..utils import safe_sample
 from ..proba_dists import ProbaDist
-from .base_func import BaseFunc, ExampleData, Input
+from .base_func import BaseFunc, ExampleData, Inputs
 from .base_policy import PolicyMixin
 
 
@@ -40,14 +39,13 @@ Args = namedtuple('Args', ('S', 'is_training'))
 class Policy(BaseFunc, PolicyMixin):
     r"""
 
-    A parametrized (i.e. learnable) policy :math:`\pi_\theta(a|s)`.
+    A parametrized policy :math:`\pi_\theta(a|s)`.
 
     Parameters
     ----------
     func : function
 
-        A Haiku-style function that specifies the forward pass. The function signature must be the
-        same as the example below.
+        A Haiku-style function that specifies the forward pass.
 
     observation_space : gym.Space
 
@@ -56,12 +54,11 @@ class Policy(BaseFunc, PolicyMixin):
 
     action_space : gym.Space
 
-        The action space of the environment. This may be used to generate example input for
-        initializing :attr:`params` or to validate the output structure.
+        The action space of the environment. This is used to validate the output structure.
 
     proba_dist : ProbaDist, optional
 
-        A probability distribution that is used to interpret the output of :paramref:`func
+        A probability distribution that is used to interpret the output of :code:`func
         <coax.Policy.func>`. Check out the :mod:`coax.proba_dists` module for available options.
 
         If left unspecified, this defaults to:
@@ -107,7 +104,7 @@ class Policy(BaseFunc, PolicyMixin):
             lambda x: jnp.asarray(rnd.randn(batch_size, *x.shape[1:])), proba_dist.default_priors)
 
         return ExampleData(
-            inputs=Input(args=Args(S=S, is_training=True), static_argnums=(1,)),
+            inputs=Inputs(args=Args(S=S, is_training=True), static_argnums=(1,)),
             output=dist_params,
         )
 

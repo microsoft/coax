@@ -67,7 +67,7 @@ class PolicyMixin:
     def greedy(self, s):
         r"""
 
-        Get the action greedily :math:`a=\arg\max_a\pi(a|s)`..
+        Sample a greedy action :math:`a=\arg\max_a\pi(a|s)`.
 
         Parameters
         ----------
@@ -102,9 +102,7 @@ class PolicyMixin:
         -------
         dist_params : Params
 
-            The distribution parameters of :math:`\pi(.|s)`. For instance, for a categorical
-            distribution this would be ``Params({'logits': array([...])})``. For a normal
-            distribution it is ``Params({'mu': array([...]), 'logvar': array([...])})``
+            The distribution parameters of :math:`\pi(.|s)`.
 
         """
         S = single_to_batch(s)

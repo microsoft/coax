@@ -224,7 +224,7 @@ class ProbaDist(BaseProbaDist):
             assert self._structure_type == StructureType.LIST
             return tuple(
                 dist.postprocess_variate(X[i], batch_mode)
-                for i, dist in self._structure)
+                for i, dist in enumerate(self._structure))
 
         if isinstance(self.space, gym.spaces.Dict):
             assert self._structure_type == StructureType.DICT

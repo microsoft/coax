@@ -30,7 +30,7 @@ from gym.spaces import Space, Discrete
 
 from ..utils import single_to_batch, safe_sample
 from ..proba_dists import ProbaDist
-from .base_func import BaseFunc, ExampleData, Input
+from .base_func import BaseFunc, ExampleData, Inputs
 
 
 __all__ = (
@@ -46,7 +46,7 @@ ArgsType2 = namedtuple('Args', ('S', 'is_training'))
 class Q(BaseFunc):
     r"""
 
-    A state-action value function :math:`q(s,a)`.
+    A state-action value function :math:`q_\theta(s,a)`.
 
     Parameters
     ----------
@@ -80,109 +80,7 @@ class Q(BaseFunc):
 
         Seed for pseudo-random number generators.
 
-    Examples
-    --------
-
-    Here's an example where the observation space and the action space are both a
-    :class:`gym.spaces.Box`.
-
-    .. code:: python
-
-        from functools import partial
-
-        import gym
-        import coax
-        import jax
-        import jax.numpy as jnp
-        import haiku as hk
-        from jax.experimental import optix
-
-
-        def func(S, A, is_training):
-            rng1, rng2, rng3 = hk.next_rng_keys(3)
-            rate = 0.25 if is_training else 0.
-            seq = hk.Sequential((
-                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng1, rate),
-                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng2, rate),
-                hk.Linear(8), jax.nn.relu, partial(hk.dropout, rng3, rate),
-                hk.Linear(1, w_init=jnp.zeros), jnp.ravel,
-            ))
-            return seq(jnp.concatenate((S, A), axis=-1))
-
-
-        env = gym.make('Pendulum-v0')
-
-        # the state value function
-        q = coax.Q(func, env.observation_space, env.action_space, optimizer=optix.adam(0.01))
-
-        # example usage:
-        s = env.observation_space.sample()
-        a = env.action_space.sample()
-        q(s, a)  # returns a float
-
-
-    The inputs ``S`` and ``A`` are batches of state observations and actions respectively, and
-    ``is_training`` is a single boolean flag that indicates whether or not to run the forward-pass
-    in training mode.
-
-    **Discrete action spaces**
-
-    Here's an example where the action space is :class:`gym.spaces.Discrete`. Having a discrete
-    action space reveals some additional functionality. This comes from the fact that we may model
-    the q-function in two different ways, which we refer to type-1 and type-2:
-
-    .. math::
-
-        (s,a)   &\mapsto q(s,a)\in\mathbb{R}    &\qquad (\text{qtype} &= 1) \\
-        s       &\mapsto q(s,.)\in\mathbb{R}^n  &\qquad (\text{qtype} &= 2)
-
-    where :math:`n` is the number of discrete actions. A **type-1** q-function is defined in the
-    standard way, i.e. similar to what we did for a non-discrete actions (above):
-
-    .. code:: python
-
-        env = gym.make('CartPole-v0')
-
-        def func_type1(S, A, is_training):
-            seq = hk.Sequential((
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(1, w_init=jnp.zeros), jnp.ravel,
-            ))
-            A = jax.nn.one_hot(A, env.action_space.n)
-            return seq(jnp.concatenate((S, A), axis=-1))
-
-        q = coax.Q(func_type1, env.observation_space, env.action_space)
-
-    A **type-2** q-function is defined differently. The forward-pass function omits the action input
-    and returns a vector of size :math:`n`:
-
-    .. code:: python
-
-        def func_type2(S, is_training):
-            seq = hk.Sequential((
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(8), jax.nn.relu,
-                hk.Linear(env.action_space.n, w_init=jnp.zeros),
-            ))
-            return seq(S)
-
-        q = coax.Q(func_type2, env.observation_space, env.action_space)
-
-    An additional feature of discrete action spaces is that we may omit the action inputs, e.g.
-
-    .. code:: python
-
-        q(s, a)  # returns a single float
-        q(s)     # returns a vector of floats
-
-    This functionality works for both type-1 and type-2 q-functions. Finally, we remark that the
-    q-function type is accessible as the :attr:`qtype` property.
-
     """
-
     def __init__(
             self, func, observation_space, action_space,
             action_preprocessor=None, random_seed=None):
@@ -229,7 +127,7 @@ class Q(BaseFunc):
         else:
             A = self.action_preprocessor(a)
             Q, _ = self.function_type1(self.params, self.function_state, self.rng, S, A, False)
-        return Q[0]  # batch -> single
+        return onp.asarray(Q[0])
 
     @property
     def function_type1(self):
@@ -330,13 +228,13 @@ class Q(BaseFunc):
             warnings.warn(f"preprocessing failed for actions A; caught exception: {e}")
 
         q1_data = ExampleData(
-            inputs=Input(args=ArgsType1(S=S, A=A, is_training=True), static_argnums=(2,)),
+            inputs=Inputs(args=ArgsType1(S=S, A=A, is_training=True), static_argnums=(2,)),
             output=jnp.asarray(rnd.randn(batch_size)),
         )
         q2_data = None
         if isinstance(action_space, Discrete):
             q2_data = ExampleData(
-                inputs=Input(args=ArgsType2(S=S, is_training=True), static_argnums=(1,)),
+                inputs=Inputs(args=ArgsType2(S=S, is_training=True), static_argnums=(1,)),
                 output=jnp.asarray(rnd.randn(batch_size, action_space.n)),
             )
 

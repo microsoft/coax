@@ -31,7 +31,7 @@ from .._base.mixins import RandomStateMixin
 
 
 ExampleData = namedtuple('ExampleData', ('inputs', 'output'))
-Input = namedtuple('Input', ('args', 'static_argnums'))
+Inputs = namedtuple('Inputs', ('args', 'static_argnums'))
 
 
 class BaseFunc(ABC, RandomStateMixin):
