@@ -31,7 +31,7 @@ def func_pi(S, is_training):
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(prod(env.action_space.shape)),
+        hk.Linear(prod(env.action_space.shape), jnp.zeros),
         hk.Reshape(env.action_space.shape),
     ))
     mu = seq(S)
@@ -43,7 +43,7 @@ def func_q(S, A, is_training):
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(1), jnp.ravel
+        hk.Linear(1, jnp.zeros), jnp.ravel
     ))
     X = jnp.concatenate((S, A), axis=-1)
     return seq(X)
@@ -67,8 +67,8 @@ buffer = coax.experience_replay.SimpleReplayBuffer(capacity=25000)
 # updaters
 qlearning = coax.td_learning.QLearningMode(q, pi_targ, q_targ,
                                            loss_function=coax.value_losses.mse,
-                                           optimizer=optix.adam(1e-3))
-determ_pg = coax.policy_objectives.DeterministicPG(pi, q_targ, optimizer=optix.adam(1e-4))
+                                           optimizer=optix.adam(2e-3))
+determ_pg = coax.policy_objectives.DeterministicPG(pi, q_targ, optimizer=optix.adam(1e-3))
 
 
 # action noise

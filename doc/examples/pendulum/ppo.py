@@ -34,13 +34,13 @@ def func_pi(S, is_training):
     mu = hk.Sequential((
         shared,
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(prod(env.action_space.shape)),
+        hk.Linear(prod(env.action_space.shape), w_init=jnp.zeros),
         hk.Reshape(env.action_space.shape),
     ))
     logvar = hk.Sequential((
         shared,
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(prod(env.action_space.shape)),
+        hk.Linear(prod(env.action_space.shape), w_init=jnp.zeros),
         hk.Reshape(env.action_space.shape),
     ))
     return {'mu': mu(S), 'logvar': logvar(S)}
@@ -51,7 +51,7 @@ def func_v(S, is_training):
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
-        hk.Linear(1), jnp.ravel
+        hk.Linear(1, w_init=jnp.zeros), jnp.ravel
     ))
     return seq(S)
 
@@ -75,8 +75,8 @@ policy_reg = coax.policy_regularizers.EntropyRegularizer(pi, beta=0.01)
 
 
 # updaters
-simple_td = coax.td_learning.SimpleTD(v, optimizer=optix.adam(1e-3))
-ppo_clip = coax.policy_objectives.PPOClip(pi, regularizer=policy_reg, optimizer=optix.adam(1e-4))
+simple_td = coax.td_learning.SimpleTD(v, optimizer=optix.adam(2e-3))
+ppo_clip = coax.policy_objectives.PPOClip(pi, regularizer=policy_reg, optimizer=optix.adam(1e-3))
 
 
 # train
