@@ -161,7 +161,7 @@ Command to run:
             command.innerHTML = "$ pip install --upgrade jaxlib jax coax";
         } else {
             command.innerHTML = `$ wget https://storage.googleapis.com/jax-releases/${cudaVersion}/jaxlib-${jaxlibVersion}-${pythonVersion}-none-${osVersion}_x86_64.whl
-$ pip install jaxlib-${jaxlibVersion}-${pythonVersion}-none-manylinux2010_x86_64.whl
+$ pip install jaxlib-${jaxlibVersion}-${pythonVersion}-none-${osVersion}_x86_64.whl
 $ pip install --upgrade jax coax`
         }
     }
