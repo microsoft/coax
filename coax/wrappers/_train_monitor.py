@@ -23,6 +23,7 @@ import os
 import re
 import datetime
 import time
+import logging
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 from typing import Mapping
@@ -33,6 +34,7 @@ import tensorboardX
 from gym import Wrapper
 
 from .._base.mixins import LoggerMixin, SerializationMixin
+from ..utils import enable_logging
 
 
 __all__ = (
@@ -85,6 +87,9 @@ class TrainMonitor(Wrapper, LoggerMixin, SerializationMixin):
             x_\text{avg}\ &\leftarrow\ x_\text{avg}
                 + \frac{x_\text{obs} - x_\text{avg}}{n}
 
+    \*\*logger_kwargs
+
+        Keyword arguments to pass on to :func:`coax.utils.enable_logging`.
 
     Attributes
     ----------
@@ -120,13 +125,15 @@ class TrainMonitor(Wrapper, LoggerMixin, SerializationMixin):
             tensorboard_dir=None,
             tensorboard_write_all=False,
             log_all_metrics=False,
-            smoothing=10):
+            smoothing=10,
+            **logger_kwargs):
 
         super().__init__(env)
         self.log_all_metrics = log_all_metrics
         self.tensorboard_write_all = tensorboard_write_all
         self.smoothing = float(smoothing)
         self.reset_global()
+        enable_logging(**logger_kwargs)
         self._init_tensorboard(tensorboard_dir)
 
     def reset_global(self):

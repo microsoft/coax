@@ -93,9 +93,21 @@ intuitive library based on Sonnet (a lightweight alternative to keras).
 Show me the code!
 -----------------
 
-Rather than walking through the entire **coax** API, here's an example of a simple q-learning agent.
-This code is fully functional (apart from the environment name, which we left out). What you'll see
-is that we designed **coax** to align with the underlying RL components, not agents.
+Let's look at a specific example so that we get a feel for how the **coax** API works. We'll
+implement a simple q-learning agent.
+
+We start by defining our q-function. In **coax**, this is done by specifying a forward-pass
+function:
+
+.. code:: python
+
+    import gym
+    import coax
+
+    env = gym.make('FrozenLakeNonSlippery-v0')
+    env = coax.wrappers.TrainMonitor(env)
+
+
 
 .. code:: python
 

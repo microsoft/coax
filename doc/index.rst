@@ -13,27 +13,16 @@ Create simple, reproducible RL solutions with OpenAI gym environments and JAX-ba
 approximators.
 
 Install
--------
+=======
 
-Install using pip:
+Even though ``coax`` requires the ``jax``, it doesn't have an explicit dependence on it. The reason
+is that your version of ``jax`` and ``jaxlib`` will depend on your CUDA version.
 
-.. code:: bash
+Please select the configuration that applies to your setup.
 
-    $ pip install coax
+.. raw:: html
+    :file: versions.html
 
-or install from a fresh clone:
-
-.. code:: bash
-
-    $ git clone https://github.com/microsoft/coax.git
-    $ pip install -e ./coax
-
-
-.. note::
-
-    **coax** requires the JAX python package, but it doesn't have an explicit dependence on it. The
-    reason is that your version of ``jax`` and ``jaxlib`` will depend on your CUDA version. Check
-    out the :doc:`examples/getting_started/install` to install ``jax``.
 
 
 Getting Started

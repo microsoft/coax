@@ -60,6 +60,7 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
     'sphinx_tabs.tabs',
+    'sphinx_copybutton',
 ]
 
 
@@ -281,3 +282,10 @@ todo_include_todos = True
 # Overrides:
 napoleon_use_rtype = False
 napoleon_use_ivar = True
+
+
+# -- Options for napolean extension ------------------------------------------
+
+# this strips common prefixes from the code before it's copied
+copybutton_prompt_text = r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
+copybutton_prompt_is_regexp = True

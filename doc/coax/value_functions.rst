@@ -142,7 +142,7 @@ Let's first define our **type-1** forward-pass function:
     s = env.observation_space.sample()
     a = env.action_space.sample()
     print(q(s, a))  # 0.0
-    print(q(s))     # [0. 0.]
+    print(q(s))     # array([0., 0.])
 
 
 Alternatively, a **type-2** forward-pass function might be:
@@ -166,7 +166,7 @@ Alternatively, a **type-2** forward-pass function might be:
     s = env.observation_space.sample()
     a = env.action_space.sample()
     print(q(s, a))  # 0.0
-    print(q(s))     # [0. 0.]
+    print(q(s))     # array([0., 0.])
 
 
 If something goes wrong and you'd like to debug the forward-pass function, here's an example of what

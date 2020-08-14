@@ -92,9 +92,7 @@ def docstring(obj):
     return decorator
 
 
-def enable_logging(
-        name=None, level=logging.INFO, output_filepath=None,
-        output_level=None):
+def enable_logging(name=None, level=logging.INFO, output_filepath=None, output_level=None):
     r"""
 
     Enable logging output.
