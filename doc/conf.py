@@ -296,11 +296,13 @@ copybutton_prompt_is_regexp = True
 try:
     from jaxlib import __version__
     with open('versions.html') as f:
-        filecontent = re.sub(
-            r'var jaxlibVersion = \'\d+\.\d+\.\d+\';  // this line is automatically from conf\.py',
-            f"var jaxlibVersion = '{__version__}';  // this line is automatically from conf.py",
-            f.read())
-    with open('versions.html', 'w') as f:
-        f.write(filecontent)
+        filecontent = f.read()
+    filecontent_new = re.sub(
+        r'var jaxlibVersion = \'\d+\.\d+\.\d+\';  // this is automatically updated from conf\.py',
+        f"var jaxlibVersion = '{__version__}';  // this is automatically updated from conf.py",
+        filecontent)
+    if filecontent_new != filecontent:
+        with open('versions.html', 'w') as f:
+            f.write(filecontent_new)
 except ImportError:
     pass

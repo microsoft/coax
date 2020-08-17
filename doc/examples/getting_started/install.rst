@@ -12,3 +12,7 @@ Please select the configuration that applies to your setup.
 
 .. raw:: html
     :file: ../../versions.html
+
+
+Alternatively, you may also choose build ``jaxlib`` from source by following
+`this guide <https://jax.readthedocs.io/en/latest/developer.html#building-from-source>`_.

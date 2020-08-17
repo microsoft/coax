@@ -25,12 +25,16 @@ setup.
     :file: versions.html
 
 
+Alternatively, you may also choose build ``jaxlib`` from source by following
+`this guide <https://jax.readthedocs.io/en/latest/developer.html#building-from-source>`_.
+
+
 
 Getting Started
 ---------------
 
-Have a look at the :doc:`Getting Started <examples/getting_started/index>` page to train your first
-RL agent.
+Have a look at the :doc:`Getting Started <examples/getting_started/install>` page to train your
+first RL agent.
 
 
 .. hidden tocs .....................................................................................

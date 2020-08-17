@@ -1,5 +1,5 @@
 <style>
-table.choice_matrix {
+.version.matrix {
   width: 100%;
 }
 .version.options {
@@ -40,7 +40,7 @@ table.choice_matrix {
 </style>
 
 <p>
-<table>
+<table class="version matrix">
 <tbody>
   <tr>
     <td class="version title os">OS:</td>
@@ -126,7 +126,7 @@ Command to run:
 
     function updateCommand() {
         var codecellName = 'codecell0';
-        var jaxlibVersion = '0.1.52';  // this line is automatically from conf.py
+        var jaxlibVersion = '0.1.52';  // this is automatically updated from conf.py
 
         // get the selected os version
         var osVersion = null;
