@@ -40,9 +40,9 @@ table.choice_matrix {
 </style>
 
 <p>
-<table class="choice_matrix">
+<table>
 <tbody>
-  <tr class="choice_matrix row">
+  <tr>
     <td class="version title os">OS:</td>
     <td class="version options os">
       <!-- if you add a row here, make sure to update 'column-count' in css rule above -->
@@ -50,7 +50,7 @@ table.choice_matrix {
       <div id="manylinux2010" class="version option os selected">Linux</div>
     </td>
   </tr>
-  <tr class="choice_matrix row">
+  <tr>
     <td class="version title python">Python version:</td>
     <td class="version options python">
       <!-- if you add a row here, make sure to update 'column-count' in css rule above -->
@@ -59,7 +59,7 @@ table.choice_matrix {
       <div id="cp38" class="version option python selected">3.8</div>
     </td>
   </tr>
-  <tr class="choice_matrix row">
+  <tr>
     <td class="version title cuda">CUDA version:</td>
     <td class="version options cuda">
       <!-- if you add a row here, make sure to update 'column-count' in css rule above -->
@@ -125,9 +125,8 @@ Command to run:
     }
 
     function updateCommand() {
-        // TODO(krholshe): figure out how to make these dynamic
         var codecellName = 'codecell0';
-        var jaxlibVersion = '0.1.52';
+        var jaxlibVersion = '0.1.52';  // this line is automatically from conf.py
 
         // get the selected os version
         var osVersion = null;
