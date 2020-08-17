@@ -23,7 +23,6 @@ import os
 import re
 import datetime
 import time
-import logging
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 from typing import Mapping
