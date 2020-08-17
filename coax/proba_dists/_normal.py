@@ -19,8 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-from math import prod
-
 import jax
 import jax.numpy as jnp
 import numpy as onp
@@ -82,7 +80,7 @@ class NormalDist(BaseProbaDist):
             mu = mu.reshape(mu.shape[0], -1)
             logvar = logvar.reshape(logvar.shape[0], -1)
 
-            assert X.shape[1] == mu.shape[1] == logvar.shape[1] == prod(self.space.shape), \
+            assert X.shape[1] == mu.shape[1] == logvar.shape[1] == onp.prod(self.space.shape), \
                 f"X.shape = {X.shape}, mu.shape = {mu.shape}, " + \
                 f"logvar.shape = {logvar.shape}, self.space.shape = {self.space.shape}"
 

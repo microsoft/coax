@@ -1,11 +1,11 @@
 import os
-from math import prod
 
 import gym
 import jax
 import coax
 import haiku as hk
 import jax.numpy as jnp
+from numpy import prod
 from jax.experimental import optix
 
 
