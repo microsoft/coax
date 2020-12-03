@@ -13,7 +13,7 @@ import optax
 name, _ = os.path.splitext(os.path.basename(__file__))
 
 
-class ApexDQN(coax.Agent):
+class ApexWorker(coax.Worker):
     def __init__(self, env, q_updater, tracer, buffer=None, param_store=None, name=None):
         self.q_updater = q_updater
         self.beta = coax.utils.StepwiseLinearFunction((0, 0.4), (1000000, 1))
@@ -38,28 +38,21 @@ class ApexDQN(coax.Agent):
 
     def set_state(self, state):
         self.q.params, self.q.function_state, self.q_targ.params, self.q_targ.function_state = state
+        self.pi.q = self.q
 
-    def update(self, s, a, r, done, logp):
+    def trace(self, s, a, r, done, logp):
         self.tracer.add(s, a, r, done, logp)
         self.q_targ.soft_update(self.q, tau=0.001)
         if done:
             transition_batch = self.tracer.flush()
             td_error = self.q_updater.td_error(transition_batch)
             self.buffer_add(transition_batch, td_error)
-            self.set_beta(self.beta(self.env.T))
+            self.push_setattr('buffer.beta', self.beta(self.env.T))
 
-    def batch_update(self, transition_batch):
+    def learn(self, transition_batch):
         metrics, td_error = self.q_updater.update(transition_batch, return_td_error=True)
-        self.buffer_update(transition_batch.idx, td_error)
+        self.learn(transition_batch.idx, td_error)
         return metrics
-
-    def set_beta(self, beta):
-        if self.param_store is None:
-            self.buffer.beta = beta
-        elif isinstance(self.param_store, ray.actor.ActorHandle):
-            ray.get(self.param_store.set_beta.remote(beta))
-        else:
-            self.param_store.set_beta(beta)
 
 
 def make_env():
@@ -77,14 +70,16 @@ def forward_pass(S, is_training):
         hk.Conv2D(32, kernel_shape=4, stride=2), jax.nn.relu,
         hk.Flatten(),
         hk.Linear(256), jax.nn.relu,
-        hk.Linear(make_env().action_space.n, w_init=jnp.zeros),
+        hk.Linear(num_actions, w_init=jnp.zeros),
     ))
     X = jnp.stack(S, axis=-1) / 255.  # stack frames
     return seq(X)
 
 
 # function approximator
-q = coax.Q(forward_pass, make_env())
+env = make_env()
+num_actions = env.action_space.n
+q = coax.Q(forward_pass, env)
 
 # updater
 qlearning = coax.td_learning.QLearning(q, q_targ=q.copy(), optimizer=optax.adam(3e-4))
@@ -92,23 +87,26 @@ qlearning = coax.td_learning.QLearning(q, q_targ=q.copy(), optimizer=optax.adam(
 # reward tracer and replay buffer
 tracer = coax.reward_tracing.NStep(n=1, gamma=0.99)
 
-# ray-remote versions of our agent and replay buffer
-RemoteApexDQN = ray.remote(num_cpus=1)(ApexDQN)
+# ray-remote versions of our worker and replay buffer
+RemoteApexWorker = ray.remote(num_cpus=1)(ApexWorker)
 
+import cloudpickle as pickle
 
-ray.init(num_cpus=7)
+pickle.dumps(qlearning)
 
-buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000, alpha=0.6)
-param_store = RemoteApexDQN.remote(make_env, qlearning, tracer, buffer, name='param_store')
+# ray.init(num_cpus=7)
 
-actors = [
-    RemoteApexDQN.remote(make_env, qlearning, tracer, buffer, param_store, name=f'actor_{i}')
-    for i in range(4)]
+# buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000, alpha=0.6)
+# param_store = RemoteApexWorker.remote(make_env, qlearning, tracer, buffer, name='param_store')
 
-learner = RemoteApexDQN.remote(make_env, qlearning, tracer, buffer, param_store, name='learner')
+# actors = [
+#     RemoteApexWorker.remote(make_env, qlearning, tracer, buffer, param_store, name=f'actor_{i}')
+#     for i in range(4)]
 
-# block until one of the remote processes terminates
-ray.wait([
-    learner.batch_update_loop.remote(3000000),
-    *(actor.rollout_loop.remote(3000000) for actor in actors)
-])
+# learner = RemoteApexWorker.remote(make_env, qlearning, tracer, buffer, param_store, name='learner')
+
+# # block until one of the remote processes terminates
+# ray.wait([
+#     learner.learn_loop.remote(3000000),
+#     *(actor.rollout_loop.remote(3000000) for actor in actors)
+# ])

@@ -144,8 +144,8 @@ Object Reference
 
 """
 import time
+import inspect
 from abc import ABC, abstractmethod
-from collections import deque
 from copy import deepcopy
 
 import gym
@@ -156,49 +156,17 @@ from ..wrappers import TrainMonitor
 
 
 __all__ = (
-    'Agent',
+    'Worker',
 )
 
 
-class RollingAverage:
-    def __init__(self, n=100):
-        self._value = 0.
-        self._deque = deque(maxlen=n)
-
-    @property
-    def value(self):
-        return self._value
-
-    def update(self, observed_value):
-        if len(self._deque) == self._deque.maxlen:
-            self._value += (observed_value - self._deque.popleft()) / self._deque.maxlen
-            self._deque.append(observed_value)
-        else:
-            self._deque.append(observed_value)
-            self._value += (observed_value - self._value) / len(self._deque)
-        return self._value
+class WorkerError(Exception):
+    pass
 
 
-class ExponentialAverage:
-    def __init__(self, n=100):
-        self._value = 0.
-        self._len = 0
-        self._maxlen = n
-
-    @property
-    def value(self):
-        return self._value
-
-    def update(self, observed_value):
-        if self._len < self._maxlen:
-            self._len += 1
-        self._value += (observed_value - self._value) / self._len
-        return self._value
-
-
-class Agent(ABC):
-    def __init__(self, env, pi, tracer, buffer=None, param_store=None, name=None):
-        self.env = self._check_env(env, name)
+class Worker(ABC):
+    def __init__(self, env, pi, tracer, is_driver=False, buffer=None, param_store=None, name=None):
+        self.env = _check_env(env, name)
         self.pi = deepcopy(pi)
         self.tracer = deepcopy(tracer)
         self.buffer = deepcopy(buffer)
@@ -214,11 +182,11 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def update(self, s, a, r, done, logp):
+    def trace(self, s, a, r, done, logp):
         pass
 
     @abstractmethod
-    def batch_update(self, transition_batch):
+    def learn(self, transition_batch):
         pass
 
     def rollout(self):
@@ -235,7 +203,7 @@ class Agent(ABC):
             s = s_next
 
     def rollout_loop(self, max_total_steps, reward_threshold=None):
-        reward_threshold = self._check_reward_threshold(reward_threshold, self.env)
+        reward_threshold = _check_reward_threshold(reward_threshold, self.env)
         while self.env.T < max_total_steps and self.env.avg_G < reward_threshold:
             self.pull_state()
             self.rollout()
@@ -243,14 +211,14 @@ class Agent(ABC):
             metrics['throughput/rollout_loop'] = 1000 / self.env.dt_ms
             self.env.record_metrics(metrics)
 
-    def batch_update_loop(self, max_total_steps, batch_size=32):
+    def learn_loop(self, max_total_steps, batch_size=32):
         total_steps = 0
         throughput = 0.
         while total_steps < max_total_steps:
             t_start = time.time()
             self.pull_state()
-            metrics = self.batch_update(self.buffer_sample(batch_size=batch_size))
-            metrics['throughput/batch_update_loop'] = throughput
+            metrics = self.learn(self.buffer_sample(batch_size=batch_size))
+            metrics['throughput/learn_loop'] = throughput
             self.push_state()
             self.push_metrics(metrics)
             throughput = batch_size / (time.time() - t_start)
@@ -265,23 +233,26 @@ class Agent(ABC):
             len_ = self.param_store.buffer_len()
         return len_
 
-    def buffer_add(self, transition_batch, *args):
+    def buffer_add(self, transition_batch, Adv=None):
         assert self.buffer is not None
         if self.param_store is None:
-            self.buffer.add(deepcopy(transition_batch), *deepcopy(args))
+            if 'Adv' in inspect.signature(self.buffer.add).parameters:  # duck typing
+                self.buffer.add(deepcopy(transition_batch), Adv=deepcopy(Adv))
+            else:
+                self.buffer.add(deepcopy(transition_batch))
         elif isinstance(self.param_store, ActorHandle):
-            ray.get(self.param_store.buffer_add.remote(transition_batch, *args))
+            ray.get(self.param_store.buffer_add.remote(transition_batch, Adv=Adv))
         else:
-            self.param_store.buffer_add(transition_batch, *args)
+            self.param_store.buffer_add(transition_batch, Adv=Adv)
 
-    def buffer_update(self, transition_batch_idx, td_error):
+    def buffer_update(self, transition_batch_idx, Adv):
         assert self.buffer is not None
         if self.param_store is None:
-            self.buffer.update(deepcopy(transition_batch_idx), td_error)
+            self.buffer.update(deepcopy(transition_batch_idx), Adv=deepcopy(Adv))
         elif isinstance(self.param_store, ActorHandle):
-            ray.get(self.param_store.buffer_update.remote(transition_batch_idx, td_error))
+            ray.get(self.param_store.buffer_update.remote(transition_batch_idx, Adv))
         else:
-            self.param_store.buffer_update(transition_batch_idx, td_error)
+            self.param_store.buffer_update(transition_batch_idx, Adv)
 
     def buffer_sample(self, batch_size=32):
         assert self.buffer is not None
@@ -301,7 +272,8 @@ class Agent(ABC):
         return transition_batch
 
     def pull_state(self):
-        assert self.param_store is not None
+        if self.param_store is None:
+            raise
         if isinstance(self.param_store, ActorHandle):
             self.set_state(ray.get(self.param_store.get_state.remote()))
         else:
@@ -331,34 +303,68 @@ class Agent(ABC):
         else:
             self.param_store.push_metrics(metrics)
 
-    # -- hidden methods (boilerplate) ------------------------------------------------------------ #
-
-    @staticmethod
-    def _check_env(env, name):
-        if isinstance(env, gym.Env):
-            pass
-        elif isinstance(env, str):
-            env = gym.make(env)
-        elif hasattr(env, '__call__'):
-            env = env()
+    def pull_getattr(self, name, default_value=...):
+        if self.param_store is None:
+            value = _getattr_recursive(self, name, deepcopy(default_value))
+        elif isinstance(self.param_store, ActorHandle):
+            value = ray.get(self.pull_getattr.remote(name, default_value))
         else:
-            raise TypeError(f"env must be a gym.Env, str or callable; got: {type(env)}")
+            value = self.pull_getattr(name, default_value)
+        return value
 
-        if getattr(getattr(env, 'spec', None), 'max_episode_steps', None) is None:
-            raise ValueError(
-                "env.spec.max_episode_steps not set; please register env with "
-                "gym.register('Foo-v0', entry_point='foo.Foo', max_episode_steps=...) "
-                "or wrap your env with: env = gym.wrappers.TimeLimit(env, max_episode_steps=...)")
+    def push_setattr(self, name, value):
+        if self.param_store is None:
+            _setattr_recursive(self, name, deepcopy(value))
+        elif isinstance(self.param_store, ActorHandle):
+            ray.get(self.push_setattr.remote(name, value))
+        else:
+            self.push_setattr(name, value)
 
-        if not isinstance(env, TrainMonitor):
-            env = TrainMonitor(env, name=name, log_all_metrics=True)
 
-        return env
+# -- some helper functions (boilerplate) --------------------------------------------------------- #
 
-    @staticmethod
-    def _check_reward_threshold(reward_threshold, env):
-        if reward_threshold is None:
-            reward_threshold = getattr(getattr(env, 'spec', None), 'reward_threshold', None)
-        if reward_threshold is None:
-            reward_threshold = float('inf')
-        return reward_threshold
+
+def _check_env(env, name):
+    if isinstance(env, gym.Env):
+        pass
+    elif isinstance(env, str):
+        env = gym.make(env)
+    elif hasattr(env, '__call__'):
+        env = env()
+    else:
+        raise TypeError(f"env must be a gym.Env, str or callable; got: {type(env)}")
+
+    if getattr(getattr(env, 'spec', None), 'max_episode_steps', None) is None:
+        raise ValueError(
+            "env.spec.max_episode_steps not set; please register env with "
+            "gym.register('Foo-v0', entry_point='foo.Foo', max_episode_steps=...) "
+            "or wrap your env with: env = gym.wrappers.TimeLimit(env, max_episode_steps=...)")
+
+    if not isinstance(env, TrainMonitor):
+        env = TrainMonitor(env, name=name, log_all_metrics=True)
+
+    return env
+
+
+def _check_reward_threshold(reward_threshold, env):
+    if reward_threshold is None:
+        reward_threshold = getattr(getattr(env, 'spec', None), 'reward_threshold', None)
+    if reward_threshold is None:
+        reward_threshold = float('inf')
+    return reward_threshold
+
+
+def _getattr_recursive(obj, name, default=...):
+    if '.' not in name:
+        return getattr(obj, name) if default is Ellipsis else getattr(obj, name, default)
+
+    name, subname = name.split('.', 1)
+    return _getattr_recursive(getattr(obj, name), subname, default)
+
+
+def _setattr_recursive(obj, name, value):
+    if '.' not in name:
+        return setattr(obj, name, value)
+
+    name, subname = name.split('.', 1)
+    return _setattr_recursive(getattr(obj, name), subname, value)
