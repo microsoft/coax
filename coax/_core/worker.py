@@ -147,12 +147,17 @@ import time
 import inspect
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from typing import Optional
 
 import gym
 import ray
 from ray.actor import ActorHandle
+from jax.lib.xla_bridge import get_backend
 
+from ..typing import Policy
 from ..wrappers import TrainMonitor
+from ..reward_tracing._base import BaseRewardTracer
+from ..experience_replay._base import BaseReplayBuffer
 
 
 __all__ = (
@@ -165,13 +170,16 @@ class WorkerError(Exception):
 
 
 class Worker(ABC):
-    def __init__(self, env, pi, tracer, is_driver=False, buffer=None, param_store=None, name=None):
+    pi: Optional[Policy] = None
+    tracer: Optional[BaseRewardTracer] = None
+    buffer: Optional[BaseReplayBuffer] = None
+    buffer_warmup: Optional[int] = None
+
+    def __init__(self, env, pi=None, param_store=None, tracer=None, buffer=None, name=None):
         self.env = _check_env(env, name)
-        self.pi = deepcopy(pi)
-        self.tracer = deepcopy(tracer)
-        self.buffer = deepcopy(buffer)
         self.param_store = param_store
         self.name = name
+        self.env.logger.info(f"JAX platform name: '{get_backend().platform}'")
 
     @abstractmethod
     def get_state(self):
@@ -190,12 +198,13 @@ class Worker(ABC):
         pass
 
     def rollout(self):
+        assert self.pi is not None
         s = self.env.reset()
         for t in range(self.env.spec.max_episode_steps):
             a, logp = self.pi(s, return_logp=True)
             s_next, r, done, info = self.env.step(a)
 
-            self.update(s, a, r, done, logp)
+            self.trace(s, a, r, done, logp)
 
             if done:
                 break
@@ -204,17 +213,17 @@ class Worker(ABC):
 
     def rollout_loop(self, max_total_steps, reward_threshold=None):
         reward_threshold = _check_reward_threshold(reward_threshold, self.env)
-        while self.env.T < max_total_steps and self.env.avg_G < reward_threshold:
+        while self.pull_getattr('env.T') < max_total_steps and self.env.avg_G < reward_threshold:
             self.pull_state()
             self.rollout()
             metrics = self.pull_metrics()
             metrics['throughput/rollout_loop'] = 1000 / self.env.dt_ms
             self.env.record_metrics(metrics)
+            self.push_setattr('env.T', self.pull_getattr('env.T') + self.env.t)
 
     def learn_loop(self, max_total_steps, batch_size=32):
-        total_steps = 0
         throughput = 0.
-        while total_steps < max_total_steps:
+        while self.pull_getattr('env.T') < max_total_steps:
             t_start = time.time()
             self.pull_state()
             metrics = self.learn(self.buffer_sample(batch_size=batch_size))
@@ -256,11 +265,19 @@ class Worker(ABC):
 
     def buffer_sample(self, batch_size=32):
         assert self.buffer is not None
+        if self.buffer_warmup is None:
+            buffer_warmup = batch_size
+        else:
+            buffer_warmup = max(self.buffer_warmup, batch_size)
+        buffer_len = self.buffer_len()
         wait_secs = 1 / 1024.
-        while self.buffer_len() < batch_size:
-            self.env.logger.info(f"waiting for buffer to be populated for {wait_secs}s")
+        while buffer_len < buffer_warmup:
+            self.env.logger.info(
+                f"buffer insufficiently populated: {buffer_len}/{buffer_warmup}; "
+                f"waiting for {wait_secs}s")
             time.sleep(wait_secs)
             wait_secs = min(30, wait_secs * 2)  # wait at most 30s between tries
+            buffer_len = self.buffer_len()
 
         if self.param_store is None:
             transition_batch = self.buffer.sample(batch_size=batch_size)
@@ -272,15 +289,14 @@ class Worker(ABC):
         return transition_batch
 
     def pull_state(self):
-        if self.param_store is None:
-            raise
+        assert self.param_store is not None, "cannot call pull_state on param_store itself"
         if isinstance(self.param_store, ActorHandle):
             self.set_state(ray.get(self.param_store.get_state.remote()))
         else:
             self.set_state(self.param_store.get_state())
 
     def push_state(self):
-        assert self.param_store is not None
+        assert self.param_store is not None, "cannot call push_state on param_store itself"
         if isinstance(self.param_store, ActorHandle):
             ray.get(self.param_store.set_state.remote(self.get_state()))
         else:
@@ -307,18 +323,18 @@ class Worker(ABC):
         if self.param_store is None:
             value = _getattr_recursive(self, name, deepcopy(default_value))
         elif isinstance(self.param_store, ActorHandle):
-            value = ray.get(self.pull_getattr.remote(name, default_value))
+            value = ray.get(self.param_store.pull_getattr.remote(name, default_value))
         else:
-            value = self.pull_getattr(name, default_value)
+            value = self.param_store.pull_getattr(name, default_value)
         return value
 
     def push_setattr(self, name, value):
         if self.param_store is None:
             _setattr_recursive(self, name, deepcopy(value))
         elif isinstance(self.param_store, ActorHandle):
-            ray.get(self.push_setattr.remote(name, value))
+            ray.get(self.param_store.push_setattr.remote(name, value))
         else:
-            self.push_setattr(name, value)
+            self.param_store.push_setattr(name, value)
 
 
 # -- some helper functions (boilerplate) --------------------------------------------------------- #
