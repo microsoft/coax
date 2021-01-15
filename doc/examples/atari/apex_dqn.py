@@ -1,7 +1,8 @@
 import os
 
-os.environ['JAX_PLATFORM_NAME'] = 'gpu'
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.1'  # don't use all gpu mem
+os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+# os.environ['JAX_PLATFORM_NAME'] = 'gpu'
+# os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.1'  # don't use all gpu mem
 
 import gym
 import ray
@@ -16,7 +17,7 @@ import optax
 name, _ = os.path.splitext(os.path.basename(__file__))
 
 
-@ray.remote(num_cpus=1, num_gpus=0.1)
+@ray.remote(num_cpus=1, num_gpus=0)
 class ApexWorker(coax.Worker):
     def __init__(self, name, make_env, param_store=None, tensorboard_dir=None):
         env = make_env(name, tensorboard_dir)
@@ -58,6 +59,7 @@ class ApexWorker(coax.Worker):
     def learn(self, transition_batch):
         metrics, td_error = self.q_updater.update(transition_batch, return_td_error=True)
         self.buffer_update(transition_batch.idx, td_error)
+        self.q_targ.soft_update(self.q, tau=0.001)
         return metrics
 
 
@@ -83,8 +85,12 @@ def forward_pass(S, is_training):
     return seq(X)
 
 
+# settings
+num_actors = 6
+
+
 # start ray cluster
-ray.init(num_cpus=8, num_gpus=3)
+ray.init(num_cpus=(2 + num_actors), num_gpus=0)
 
 
 # the central parameter store
@@ -96,7 +102,7 @@ actors = [
     ApexWorker.remote(
         f'actor_{i}', make_env, param_store,
         tensorboard_dir=f'data/tensorboard/apex_dqn/actor_{i}')
-    for i in range(6)]
+    for i in range(num_actors)]
 
 
 # one learner
