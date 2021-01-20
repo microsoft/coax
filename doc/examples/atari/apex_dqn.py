@@ -19,26 +19,30 @@ name, _ = os.path.splitext(os.path.basename(__file__))
 
 @ray.remote(num_cpus=1, num_gpus=0)
 class ApexWorker(coax.Worker):
-    def __init__(self, name, make_env, param_store=None, tensorboard_dir=None):
+    def __init__(self, name, param_store=None, tensorboard_dir=None):
         env = make_env(name, tensorboard_dir)
-        super().__init__(env=env, pi=None, param_store=param_store, name=name)
 
         # function approximator
-        self.q = coax.Q(forward_pass, self.env)
-        self.pi = coax.BoltzmannPolicy(self.q, temperature=0.015)
-
-        # target network
+        self.q = coax.Q(forward_pass, env)
         self.q_targ = self.q.copy()
 
         # tracer and updater
-        self.tracer = coax.reward_tracing.NStep(n=1, gamma=0.99)
         self.q_updater = coax.td_learning.QLearning(
             self.q, q_targ=self.q_targ, optimizer=optax.adam(3e-4))
 
-        # replay buffer
-        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000, alpha=0.6)
-        self.buffer_warmup = 50000
-        self.beta = coax.utils.StepwiseLinearFunction((0, 0.4), (1000000, 1))
+        # schedule for beta parameter used in PrioritizedReplayBuffer
+        self.buffer_beta = coax.utils.StepwiseLinearFunction((0, 0.4), (1000000, 1))
+
+        super().__init__(
+            env=env,
+            param_store=param_store,
+            pi=coax.BoltzmannPolicy(self.q, temperature=0.015),
+            tracer=coax.reward_tracing.NStep(n=1, gamma=0.99),
+            buffer=(
+                coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000, alpha=0.6)
+                if param_store is None else None),
+            buffer_warmup=50000,
+            name=name)
 
     def get_state(self):
         return self.q.params, self.q.function_state, self.q_targ.params, self.q_targ.function_state
@@ -48,18 +52,17 @@ class ApexWorker(coax.Worker):
 
     def trace(self, s, a, r, done, logp):
         self.tracer.add(s, a, r, done, logp)
-        self.q_targ.soft_update(self.q, tau=0.001)
         if done:
             transition_batch = self.tracer.flush()
             for chunk in coax.utils.chunks_pow2(transition_batch):
                 td_error = self.q_updater.td_error(chunk)
                 self.buffer_add(chunk, td_error)
-            self.push_setattr('buffer.beta', self.beta(self.env.T))
 
     def learn(self, transition_batch):
         metrics, td_error = self.q_updater.update(transition_batch, return_td_error=True)
         self.buffer_update(transition_batch.idx, td_error)
         self.q_targ.soft_update(self.q, tau=0.001)
+        self.push_setattr('buffer.beta', self.buffer_beta(self.env.T))
         return metrics
 
 
@@ -94,19 +97,17 @@ ray.init(num_cpus=(2 + num_actors), num_gpus=0)
 
 
 # the central parameter store
-param_store = ApexWorker.remote('param_store', make_env)
+param_store = ApexWorker.remote('param_store')
 
 
 # concurrent rollout workers
 actors = [
-    ApexWorker.remote(
-        f'actor_{i}', make_env, param_store,
-        tensorboard_dir=f'data/tensorboard/apex_dqn/actor_{i}')
+    ApexWorker.remote(f'actor_{i}', param_store, f'data/tensorboard/apex_dqn/actor_{i}')
     for i in range(num_actors)]
 
 
 # one learner
-learner = ApexWorker.remote('learner', make_env, param_store)
+learner = ApexWorker.remote('learner', param_store)
 
 
 # block until one of the remote processes terminates

@@ -19,134 +19,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.          #
 # ------------------------------------------------------------------------------------------------ #
 
-r"""
-.. autosummary::
-    :nosignatures:
-
-    coax.Agent
-
-----
-
-Agents
-======
-
-This module provides the abstractions required for building distributed agents.
-
-The way this works in **coax** is to define a :class:`coax.Agent` class and then to create multiple
-instances of that class, which can play different roles. For instance, below is an example of an
-Ape-X DQN agent.
-
-Example: Ape-X DQN
-------------------
-
-.. code:: python
-
-    class ApexDQN(coax.Agent):
-        def __init__(self, env, q_updater, tracer, buffer=None, param_store=None, name=None):
-            self.q_updater = q_updater
-            self.q = self.q_updater.q
-            self.q_targ = self.q_updater.q_targ
-            super().__init__(
-                env=env,
-                pi=coax.BoltzmannPolicy(self.q, temperature=0.015),
-                tracer=tracer,
-                buffer=buffer,
-                param_store=param_store,
-                name=name)
-
-        def get_state(self):
-            return (
-                self.q.params,
-                self.q.function_state,
-                self.q_targ.params,
-                self.q_targ.function_state,
-            )
-
-        def set_state(self, state):
-            (
-                self.q.params,
-                self.q.function_state,
-                self.q_targ.params,
-                self.q_targ.function_state,
-            ) = state
-
-        def update(self, s, a, r, done, logp):
-            self.tracer.add(s, a, r, done, logp)
-            self.q_targ.soft_update(self.q, tau=0.001)
-            if done:
-                transition_batch = self.tracer.flush()
-                td_error = self.q_updater.td_error(transition_batch)
-                self.buffer_add(transition_batch, td_error)
-
-        def batch_update(self, transition_batch):
-            metrics, td_error = self.q_updater.update(transition_batch, return_td_error=True)
-            self.buffer_update(transition_batch.idx, td_error)
-            self.push_metrics(metrics)
-
-
-    def make_env():
-        env = gym.make('PongNoFrameskip-v4')  # AtariPreprocessing will do frame skipping
-        env = gym.wrappers.AtariPreprocessing(env)
-        env = coax.wrappers.FrameStacking(env, num_frames=3)
-        env = coax.wrappers.TrainMonitor(env, name=name)
-        env.spec.reward_threshold = 19.
-        return env
-
-
-    def forward_pass(S, is_training):
-        seq = hk.Sequential((
-            coax.utils.diff_transform,
-            hk.Conv2D(16, kernel_shape=8, stride=4), jax.nn.relu,
-            hk.Conv2D(32, kernel_shape=4, stride=2), jax.nn.relu,
-            hk.Flatten(),
-            hk.Linear(256), jax.nn.relu,
-            hk.Linear(make_env().action_space.n, w_init=jnp.zeros),
-        ))
-        X = jnp.stack(S, axis=-1) / 255.  # stack frames
-        return seq(X)
-
-
-    # function approximator
-    q = coax.Q(forward_pass, make_env())
-
-    # updater
-    qlearning = coax.td_learning.QLearning(q, q_targ=q.copy(), optimizer=adam(3e-4))
-
-    # reward tracer and replay buffer
-    tracer = coax.reward_tracing.NStep(n=1, gamma=0.99)
-
-    # ray-remote versions of our agent and replay buffer
-    RemoteApexDQN = ray.remote(ApexDQN)
-    RemoteBuffer = ray.remote(coax.experience_replay.PrioritizedReplayBuffer)
-
-    buffer = RemoteBuffer.remote(capacity=1000000)
-    param_store = RemoteApexDQN.remote(q_updater, tracer, buffer, name='param_store')
-
-    actors = [
-        RemoteApexDQN.remote(make_env, q_updater, tracer, buffer, param_store, name=f'actor_{i}')
-        for i in range(4)]
-
-    learner = RemoteApexDQN.remote(make_env, q_updater, tracer, buffer, param_store, name='learner')
-
-    # block until one of the remote processes terminates
-    ray.wait([
-        learner.batch_update_loop.remote(),
-        *(actor.rollout_loop.remote() for actor in actors)
-    ])
-
-
-
-
-Object Reference
-----------------
-
-.. autoclass:: coax.envs.ConnectFourEnv
-
-"""
 import time
 import inspect
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from typing import Optional
 
 import gym
@@ -170,31 +45,138 @@ class WorkerError(Exception):
 
 
 class Worker(ABC):
+    r"""
+
+    The base class for defining workers as part of a distributed agent.
+
+    Parameters
+    ----------
+    env : gym.Env | str | function
+
+        Specifies the gym-style environment by either passing the env itself (gym.Env), its name
+        (str), or a function that generates the environment.
+
+    param_store : Worker, optional
+
+        A distributed agent is presumed to have one worker that plays the role of a parameter store.
+        To define the parameter-store worker itself, you must leave :code:`param_store=None`. For
+        other worker roles, however, :code:`param_store` must be provided.
+
+    pi : Policy, optional
+
+        The behavior policy that is used by rollout workers to generate experience.
+
+    tracer : RewardTracer, optional
+
+        The reward tracer that is used by rollout workers.
+
+    buffer : ReplayBuffer, optional
+
+        The experience-replay buffer that is populated by rollout workers and sampled from by
+        learners.
+
+    buffer_warmup : int, optional
+
+        The warmup period for the experience replay buffer, i.e. the minimal number of transitions
+        that need to be stored in the replay buffer before we start sampling from it.
+
+    name : str, optional
+
+        A human-readable identifier of the worker.
+
+    """
     pi: Optional[Policy] = None
     tracer: Optional[BaseRewardTracer] = None
     buffer: Optional[BaseReplayBuffer] = None
     buffer_warmup: Optional[int] = None
 
-    def __init__(self, env, pi=None, param_store=None, tracer=None, buffer=None, name=None):
+    def __init__(
+            self, env,
+            param_store=None,
+            pi=None,
+            tracer=None,
+            buffer=None,
+            buffer_warmup=None,
+            name=None):
+
         self.env = _check_env(env, name)
         self.param_store = param_store
+        self.pi = pi
+        self.tracer = tracer
+        self.buffer = buffer
+        self.buffer_warmup = buffer_warmup
         self.name = name
         self.env.logger.info(f"JAX platform name: '{get_backend().platform}'")
 
     @abstractmethod
     def get_state(self):
+        r"""
+
+        Get the internal state that is shared between workers.
+
+        Returns
+        -------
+        state : object
+
+            The internal state. This will be consumed by :func:`set_state(state) <set_state>`.
+
+        """
         pass
 
     @abstractmethod
     def set_state(self, state):
+        r"""
+
+        Set the internal state that is shared between workers.
+
+        Parameters
+        ----------
+        state : object
+
+            The internal state, as returned by :func:`get_state`.
+
+        """
         pass
 
     @abstractmethod
-    def trace(self, s, a, r, done, logp):
+    def trace(self, s, a, r, done, logp=0.0, w=1.0):
+        r"""
+
+        This implements the reward-tracing step of a single, raw transition.
+
+        Parameters
+        ----------
+        s : state observation
+
+            A single state observation.
+
+        a : action
+
+            A single action.
+
+        r : float
+
+            A single observed reward.
+
+        done : bool
+
+            Whether the episode has finished.
+
+        logp : float, optional
+
+            The log-propensity :math:`\log\pi(a|s)`.
+
+        w : float, optional
+
+            Sample weight associated with the given state-action pair.
+
+
+        """
         pass
 
     @abstractmethod
     def learn(self, transition_batch):
+        r""" Update the model parameters given a transition batch. """
         pass
 
     def rollout(self):
@@ -213,13 +195,15 @@ class Worker(ABC):
 
     def rollout_loop(self, max_total_steps, reward_threshold=None):
         reward_threshold = _check_reward_threshold(reward_threshold, self.env)
-        while self.pull_getattr('env.T') < max_total_steps and self.env.avg_G < reward_threshold:
+        T_global = self.pull_getattr('env.T')
+        while T_global < max_total_steps and self.env.avg_G < reward_threshold:
             self.pull_state()
             self.rollout()
             metrics = self.pull_metrics()
             metrics['throughput/rollout_loop'] = 1000 / self.env.dt_ms
+            metrics['episode/T_global'] = T_global = self.pull_getattr('env.T') + self.env.t
+            self.push_setattr('env.T', T_global)  # not exactly thread-safe, but that's okay
             self.env.record_metrics(metrics)
-            self.push_setattr('env.T', self.pull_getattr('env.T') + self.env.t)
 
     def learn_loop(self, max_total_steps, batch_size=32):
         throughput = 0.
@@ -233,8 +217,8 @@ class Worker(ABC):
             throughput = batch_size / (time.time() - t_start)
 
     def buffer_len(self):
-        assert self.buffer is not None
         if self.param_store is None:
+            assert self.buffer is not None
             len_ = len(self.buffer)
         elif isinstance(self.param_store, ActorHandle):
             len_ = ray.get(self.param_store.buffer_len.remote())
@@ -243,36 +227,32 @@ class Worker(ABC):
         return len_
 
     def buffer_add(self, transition_batch, Adv=None):
-        assert self.buffer is not None
         if self.param_store is None:
+            assert self.buffer is not None
             if 'Adv' in inspect.signature(self.buffer.add).parameters:  # duck typing
-                self.buffer.add(deepcopy(transition_batch), Adv=deepcopy(Adv))
+                self.buffer.add(transition_batch, Adv=Adv)
             else:
-                self.buffer.add(deepcopy(transition_batch))
+                self.buffer.add(transition_batch)
         elif isinstance(self.param_store, ActorHandle):
-            ray.get(self.param_store.buffer_add.remote(transition_batch, Adv=Adv))
+            ray.get(self.param_store.buffer_add.remote(transition_batch, Adv))
         else:
-            self.param_store.buffer_add(transition_batch, Adv=Adv)
+            self.param_store.buffer_add(transition_batch, Adv)
 
     def buffer_update(self, transition_batch_idx, Adv):
-        assert self.buffer is not None
         if self.param_store is None:
-            self.buffer.update(deepcopy(transition_batch_idx), Adv=deepcopy(Adv))
+            assert self.buffer is not None
+            self.buffer.update(transition_batch_idx, Adv=Adv)
         elif isinstance(self.param_store, ActorHandle):
             ray.get(self.param_store.buffer_update.remote(transition_batch_idx, Adv))
         else:
             self.param_store.buffer_update(transition_batch_idx, Adv)
 
     def buffer_sample(self, batch_size=32):
-        assert self.buffer is not None
-        if self.buffer_warmup is None:
-            buffer_warmup = batch_size
-        else:
-            buffer_warmup = max(self.buffer_warmup, batch_size)
-        buffer_len = self.buffer_len()
+        buffer_warmup = max(self.buffer_warmup or 0, batch_size)
         wait_secs = 1 / 1024.
+        buffer_len = self.buffer_len()
         while buffer_len < buffer_warmup:
-            self.env.logger.info(
+            self.env.logger.debug(
                 f"buffer insufficiently populated: {buffer_len}/{buffer_warmup}; "
                 f"waiting for {wait_secs}s")
             time.sleep(wait_secs)
@@ -280,6 +260,7 @@ class Worker(ABC):
             buffer_len = self.buffer_len()
 
         if self.param_store is None:
+            assert self.buffer is not None
             transition_batch = self.buffer.sample(batch_size=batch_size)
         elif isinstance(self.param_store, ActorHandle):
             transition_batch = ray.get(self.param_store.buffer_sample.remote(batch_size=batch_size))
@@ -321,7 +302,7 @@ class Worker(ABC):
 
     def pull_getattr(self, name, default_value=...):
         if self.param_store is None:
-            value = _getattr_recursive(self, name, deepcopy(default_value))
+            value = _getattr_recursive(self, name, default_value)
         elif isinstance(self.param_store, ActorHandle):
             value = ray.get(self.param_store.pull_getattr.remote(name, default_value))
         else:
@@ -330,7 +311,7 @@ class Worker(ABC):
 
     def push_setattr(self, name, value):
         if self.param_store is None:
-            _setattr_recursive(self, name, deepcopy(value))
+            _setattr_recursive(self, name, value)
         elif isinstance(self.param_store, ActorHandle):
             ray.get(self.param_store.push_setattr.remote(name, value))
         else:
