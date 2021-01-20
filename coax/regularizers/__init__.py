@@ -20,6 +20,9 @@
 # ------------------------------------------------------------------------------------------------ #
 
 r"""
+Regularizers
+============
+
 .. autosummary::
     :nosignatures:
 
@@ -27,9 +30,6 @@ r"""
     coax.regularizers.KLDivRegularizer
 
 ----
-
-Regularizers
-============
 
 This is a collection of regularizers that can be used to put soft constraints on stochastic function
 approximators. These is typically added to the loss/objective to avoid premature exploitation of a

@@ -1,12 +1,12 @@
+Workers
+=======
+
 .. autosummary::
     :nosignatures:
 
     coax.Worker
 
 ----
-
-Workers
-=======
 
 This module provides the abstractions required for building distributed agents.
 
