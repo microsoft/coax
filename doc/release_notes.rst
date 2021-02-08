@@ -2,12 +2,21 @@ Release Notes
 =============
 
 
+v0.1.6
+------
+
+- Add basic support for distributed agents, see example: :doc:`Ape-X DQN <examples/atari/apex_dqn>`
+- Fixed issues with serialization of jit-compiled functions, see `jax#5043 <https://github.com/google/jax/issues/5043>`_ and `jax#5153 <https://github.com/google/jax/pull/5153#issuecomment-755930540>`_
+- Add support for sample weights in reward tracers
+
+
+
 v0.1.5
 ------
 
 - Implemented :class:`coax.td_learning.SoftQLearning`.
-- Added soft q-learning :doc:`stub <examples/atari/dqn_soft>` and
-  :doc:`script <examples/stubs/soft_qlearning>`.
+- Added soft q-learning :doc:`stub <examples/stubs/soft_qlearning>` and
+  :doc:`script <examples/atari/dqn_soft>`.
 - Added serialization utils: :func:`coax.utils.dump`, :func:`coax.utils.dumps`, :func:`coax.utils.load`, :func:`coax.utils.loads`.
 
 
